@@ -84,7 +84,3 @@ python3 app.py --platform android
 ## Contributing
 
 Feel free to open issues or submit PRs.
-
-## License
-
-MIT License

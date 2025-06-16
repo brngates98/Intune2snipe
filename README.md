@@ -1,16 +1,16 @@
 # Intune → Snipe-IT Sync
 
-A Python script to sync Microsoft Intune managed devices into Snipe-IT, create necessary categories, manufacturers, models, and check out hardware to users.
+A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the ability to filter by device platform.
 
 ## Features
 
-- Fetch all Intune managed devices via Microsoft Graph API
+- Fetch Intune managed devices via Microsoft Graph API
 - Normalize Android-Enterprise UPNs
 - Auto-create Snipe-IT categories, manufacturers, and models
-- Import devices into Snipe-IT with correct `manufacturer_id`, `model_id`, and `category_id`
-- Assign device status by label (e.g., "Ready to Deploy")
+- Import devices into Snipe-IT with correct `manufacturer_id`, `model_id`, `category_id`, and status label
 - Check out assets to existing Snipe-IT users
 - `--dry-run` mode to preview actions without writing
+- `--platform` flag to limit sync to one of: `windows`, `android`, `ios`, `macos`, or `all`
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, create n
 
 ## Configuration
 
-The script reads config from environment variables. Create a `.env` or export manually:
+Set environment variables (or add to `.env`):
 
 ```bash
 export AZURE_TENANT_ID="<your-tenant-guid>"
@@ -47,32 +47,44 @@ export SNIPEIT_DEFAULT_STATUS="Ready to Deploy"
 
 ## Usage
 
-Run a dry run to preview operations without writing to Snipe-IT:
+### Dry run
+
+Preview actions without writing to Snipe-IT:
 
 ```bash
-python3 app.py --dry-run
+python3 app.py --dry-run --platform windows
 ```
 
-Perform actual sync:
+### Actual sync
+
+Sync devices (all platforms by default):
 
 ```bash
 python3 app.py
 ```
 
-The script will:
+Sync only Android devices:
 
-1. Fetch all Intune devices
-2. Ensure a "Intune" category exists
-3. Ensure the default status label (e.g., "Ready to Deploy") exists
-4. Create manufacturers and models (using Intune model number as both name and model_number)
-5. Create hardware assets and optionally check them out to users
+```bash
+python3 app.py --platform android
+```
+
+## How it works
+
+1. **Fetch** Intune devices (filtering by `--platform`) via Graph API.  
+2. **Ensure** Snipe-IT has an `Intune` category, the default status label exists, and models/manufacturers are created.  
+3. **Create** hardware assets in Snipe-IT and **check them out** to users if assigned.  
 
 ## Troubleshooting
 
-- **403 Forbidden** when fetching devices: ensure your Azure AD app has `DeviceManagementManagedDevices.Read.All` application permission and is granted admin consent.
-- **Missing Snipe-IT fields**: check API token scope, and confirm the Snipe-IT instance supports categories, models, and status labels endpoints.
-- **Status label not found**: verify `SNIPEIT_DEFAULT_STATUS` matches exactly an existing status label name.
+- **403 Forbidden**: Ensure your Azure AD app has appropriate Graph permissions and admin consent.  
+- **Missing fields**: Verify your Snipe-IT instance has categories, models, and status labels enabled.  
+- **Status label not found**: Check `SNIPEIT_DEFAULT_STATUS` matches exactly an existing label.  
 
 ## Contributing
 
-Feel free to open issues or submit PRs for enhancements and bug fixes.
+Feel free to open issues or submit PRs.
+
+## License
+
+MIT License

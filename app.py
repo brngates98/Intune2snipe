@@ -104,9 +104,6 @@ def get_or_create_model(model_number, manufacturer_id, category_id):
 
 
 def get_status_id(name):
-    """
-    Lookup an asset status label by name using the /statuslabels endpoint.
-    """
     try:
         r = requests.get(f"{SNIPEIT_URL}/statuslabels", headers=headers_snipeit)
         r.raise_for_status()
@@ -131,15 +128,30 @@ def get_snipeit_user_id(upn):
 # ────────────────────────────────────────────────────────────────────────────────
 
 
-def fetch_managed_devices():
-    url, devices = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices", []
+def fetch_managed_devices(platform):
+    """
+    Fetch Intune managed devices, optionally filtering by operatingSystem.
+    """
+    url = "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices"
+    devices = []
     while url:
         r = requests.get(url, headers=headers_graph)
         if r.status_code == 403:
             raise RuntimeError("403 Forbidden fetching devices: check permissions")
         r.raise_for_status()
         data = r.json()
-        devices.extend(data.get("value", []))
+        for dev in data.get("value", []):
+            os_val = dev.get("operatingSystem", "").lower()
+            if platform == 'all':
+                devices.append(dev)
+            elif platform == 'windows' and os_val.startswith('windows'):
+                devices.append(dev)
+            elif platform == 'android' and 'android' in os_val:
+                devices.append(dev)
+            elif platform == 'ios' and 'ios' in os_val:
+                devices.append(dev)
+            elif platform == 'macos' and 'mac' in os_val:
+                devices.append(dev)
         url = data.get("@odata.nextLink")
     return devices
 
@@ -192,9 +204,9 @@ def send_to_snipeit(device, category_id, status_id, dry_run=False):
             print(f"[ERROR] Checkout failed for asset {asset_id}: {co.status_code} {co.text}")
 
 
-def main(dry_run):
-    devices = fetch_managed_devices()
-    print(f"Found {len(devices)} Intune devices")
+def main(dry_run, platform):
+    devices = fetch_managed_devices(platform)
+    print(f"Found {len(devices)} Intune devices for platform '{platform}'")
     category_id = get_or_create_category("Intune")
     status_id = get_status_id(DEFAULT_STATUS_NAME)
     if status_id is None:
@@ -206,5 +218,9 @@ def main(dry_run):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sync Intune → Snipe-IT")
     parser.add_argument("--dry-run", action="store_true", help="Print actions without writing to Snipe-IT")
+    parser.add_argument(
+        "--platform", choices=["windows", "android", "ios", "macos", "all"],
+        default="all", help="Filter devices by OS"
+    )
     args = parser.parse_args()
-    main(dry_run=args.dry_run)
+    main(dry_run=args.dry_run, platform=args.platform)

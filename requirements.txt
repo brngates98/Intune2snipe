@@ -1,0 +1,3 @@
+requests
+msal
+python-dotenv

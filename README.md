@@ -32,6 +32,10 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
    ```
 2. Install dependencies:
    ```bash
+   pip install -r requirements.txt
+   ```
+   Or install manually:
+   ```bash
    pip install msal requests
    ```
 
@@ -94,6 +98,54 @@ python3 app.py --platform windows --groups "<group-object-id-1>,<group-object-id
 - Or use: `az ad group list --display-name "Your Group Name" --query "[].id"`
 
 **Note:** Group filtering requires devices to be Azure AD registered/joined. Devices that are only Intune-managed without Azure AD registration will not be matched.
+
+## Deployment
+
+This project includes a `Dockerfile` and Kubernetes manifest (`k8s/cronjob.yaml`) that you can use to automate the sync process. **It's recommended to test the script directly using Python first**, and once you've verified it works correctly, deploy it using Docker or Kubernetes.
+
+### Docker
+
+Build and run the Docker container:
+
+```bash
+# Build the image
+docker build -t intune2snipe:latest .
+
+# Run the container
+docker run --rm \
+  -e AZURE_TENANT_ID="<your-tenant-id>" \
+  -e AZURE_CLIENT_ID="<your-client-id>" \
+  -e AZURE_CLIENT_SECRET="<your-client-secret>" \
+  -e SNIPEIT_URL="<your-snipeit-url>" \
+  -e SNIPEIT_API_TOKEN="<your-token>" \
+  intune2snipe:latest \
+  --platform windows --dry-run
+```
+
+### Kubernetes
+
+The Kubernetes manifest includes a CronJob that runs the sync on a schedule (default: daily at 2:00 AM UTC).
+
+1. **Edit the Kubernetes manifest** (`k8s/cronjob.yaml`):
+   - Update the Secret values with your actual credentials
+   - Update the image name to match your container registry
+   - Customize the schedule if needed (cron format)
+   - Adjust resource limits if necessary
+
+2. **Apply the manifest**:
+   ```bash
+   kubectl apply -f k8s/cronjob.yaml
+   ```
+
+3. **Check the CronJob status**:
+   ```bash
+   kubectl get cronjob intune2snipe-sync
+   kubectl get jobs -l app=intune2snipe-sync
+   ```
+
+### GitHub Actions
+
+The repository includes a GitHub Actions workflow (`.github/workflows/docker-build.yml`) that automatically builds and pushes Docker images to GitHub Container Registry (ghcr.io) on push to main/master branches. Update the image name in the Kubernetes manifest to match your repository path.
 
 ## How it works
 

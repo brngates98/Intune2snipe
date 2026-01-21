@@ -153,7 +153,7 @@ def get_status_id(name):
 def get_snipeit_user_id(upn):
     if not upn:
         return None
-    r = requests.get(f"{SNIPEIT_URL}/users?search={upn}", headers=headers_snipeit)
+    r = requests.get(f"{SNIPEIT_URL}/users?email={upn}", headers=headers_snipeit)
     if r.status_code == 429:  # Too many requests
         print("Sleeping for 35s")
         time.sleep(35)

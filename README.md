@@ -52,15 +52,29 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
 
 ### Docker Installation
 
-Pull the pre-built image from GitHub Container Registry:
+**Pull the pre-built image from GitHub Container Registry:**
 
 ```bash
+# Pull the latest image
 docker pull ghcr.io/yourorg/intune2snipe:latest
 ```
 
-Or build locally:
+**Note:** Replace `yourorg/intune2snipe` with your GitHub organization/username and repository name. The image path format is `ghcr.io/<org-or-username>/<repo-name>:<tag>`.
+
+**For private repositories**, authenticate first:
 
 ```bash
+# Login to GHCR using your GitHub Personal Access Token
+# Create a PAT with 'read:packages' permission at: https://github.com/settings/tokens
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+# Enter your GitHub Personal Access Token when prompted
+```
+
+**Or build locally:**
+
+```bash
+git clone https://github.com/yourorg/intune2snipe.git
+cd intune2snipe
 docker build -t intune2snipe:latest .
 ```
 
@@ -170,7 +184,31 @@ This project includes a `Dockerfile` and Kubernetes manifest (`k8s/cronjob.yaml`
 
 ### Docker
 
+**Pull the image from GitHub Container Registry:**
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/yourorg/intune2snipe:latest
+
+# Or pull a specific tag/version
+docker pull ghcr.io/yourorg/intune2snipe:v1.0.0
+docker pull ghcr.io/yourorg/intune2snipe:main
+```
+
+**Note:** If the image is private, you'll need to authenticate first:
+
+```bash
+# Login to GHCR using your GitHub Personal Access Token (PAT)
+# Create a PAT with 'read:packages' permission at: https://github.com/settings/tokens
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Or login interactively
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+# Enter your GitHub Personal Access Token when prompted
+```
+
 **Run with pre-built image:**
+
 ```bash
 docker run --rm \
   -e AZURE_TENANT_ID="<your-tenant-id>" \
@@ -184,7 +222,12 @@ docker run --rm \
 ```
 
 **Build and run locally:**
+
 ```bash
+# Clone the repository
+git clone https://github.com/yourorg/intune2snipe.git
+cd intune2snipe
+
 # Build the image
 docker build -t intune2snipe:latest .
 
@@ -281,9 +324,26 @@ After pushing to the repository, your images will be available at:
 ghcr.io/<your-github-org>/<your-repo-name>:<tag>
 ```
 
+For example, if your repository is `github.com/myorg/intune2snipe`, the image would be:
+```
+ghcr.io/myorg/intune2snipe:latest
+ghcr.io/myorg/intune2snipe:main
+ghcr.io/myorg/intune2snipe:v1.0.0
+```
+
+**Pull the image:**
+```bash
+# Pull latest
+docker pull ghcr.io/<your-github-org>/<your-repo-name>:latest
+
+# Pull specific tag
+docker pull ghcr.io/<your-github-org>/<your-repo-name>:v1.0.0
+```
+
 **Viewing Images:**
-- Go to your repository → **Packages** section
-- Or visit: `https://github.com/orgs/<your-org>/packages/container/<your-repo-name>`
+- Go to your repository → **Packages** section (right sidebar)
+- Or visit: `https://github.com/<your-org>/<your-repo>/pkgs/container/<your-repo-name>`
+- View all available tags and pull commands on the package page
 
 ### Dependabot
 

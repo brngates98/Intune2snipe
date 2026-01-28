@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Group all action updates into a single PR
+    groups:
+      docker-actions:
+        patterns:
+          - "docker/*"
+      github-actions:
+        patterns:
+          - "actions/*"
+    # Allow both major and minor version updates
+    open-pull-requests-limit: 10

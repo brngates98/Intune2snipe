@@ -1,0 +1,79 @@
+name: Build and Push to GCR
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  GCP_REGION: 'europe-west1'
+  GCP_PROJECT_ID: 'snipeit-pro-mj9n'
+  CLOUD_RUN_JOB: 'intune2snipe-job'
+  ARTIFACT_REGISTRY_REPO: 'intune2snipe-registry'
+  IMAGE_NAME: 'intune2snipe'
+
+jobs:
+  build-and-deploy:
+    name: Build and Deploy to Development
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY_PRO }}
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          echo "🔨 Building Docker image for PRODUCTION..."
+          docker build \
+            -f aspnet-core/src/Julia.HttpApi.Host/Dockerfile \
+            -t ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:latest \
+            aspnet-core
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          echo "📤 Pushing image to Artifact Registry..."
+          docker push ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          echo "🚀 Deploying to Cloud Run PRODUCTION..."
+          gcloud run deploy ${{ env.CLOUD_RUN_JOB }} \
+            --image ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --platform managed \
+            --region ${{ env.GCP_REGION }} \
+            --allow-unauthenticated \
+            --project ${{ env.GCP_PROJECT_ID }}
+
+      - name: Get Cloud Run URL
+        id: get-url
+        run: |
+          URL=$(gcloud run services describe ${{ env.CLOUD_RUN_JOB }} \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment to PRODUCTION completed successfully!"
+          echo "🔖 Environment: production"
+          echo "📦 Project ID: ${{ env.GCP_PROJECT_ID }}"
+          echo "🐳 Image: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.ARTIFACT_REGISTRY_REPO }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          echo "☁️ Cloud Run Service: ${{ env.CLOUD_RUN_JOB }}"
+          echo "🌍 Region: ${{ env.GCP_REGION }}"
+          echo "🔗 URL: ${{ steps.get-url.outputs.url }}"

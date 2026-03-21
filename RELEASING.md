@@ -36,6 +36,22 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 
 Because **Helm release runs after Docker push**, the GHCR image for that tag is already published when the GitHub Release is created.
 
+### If **Publish Helm repo (GitHub Pages)** failed on a tag
+
+Older workflow revisions used `environment: github-pages` on the Pages job. GitHub’s **github-pages** environment often allows only **branch** deployments, so **tag** workflows were rejected (“Tag `v…` is not allowed to deploy to github-pages”). That is fixed on `main` by **not** attaching that job to the protected environment (OIDC + `pages:write` still authorize the deploy).
+
+**Important:** Your **git tag** must point at a commit **on or after** that workflow change. If you already pushed `v0.0.1` before the fix, move the tag to current `main` and push again (you may need bypass if [tag rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/about-rulesets-for-repositories) restrict tag updates):
+
+```bash
+git pull origin main
+git push origin :refs/tags/v0.0.1   # omit if you never pushed the tag
+git tag -d v0.0.1
+git tag -a v0.0.1 -m "Release v0.0.1"
+git push origin v0.0.1
+```
+
+If a **GitHub Release** for that tag already exists and `action-gh-release` errors, delete the release in the UI (or `gh release delete v0.0.1`) and re-run the workflow or push the tag again.
+
 ## Auto-maintenance
 
 - **Images:** Built on every push to `main` and on tags; no manual image build.

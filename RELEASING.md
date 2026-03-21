@@ -75,6 +75,6 @@ If a **GitHub Release** for that tag already exists and `action-gh-release` erro
 
 ## Auto-maintenance
 
-- **Images:** Built and pushed when **application or packaging files** change — **not** on documentation-only commits (see `paths` filter in `.github/workflows/docker-build.yml`: markdown under the repo, `docs/**`, issue templates, `.cursor/**`, `LICENSE`, etc.). **Semver tags** and **workflow_dispatch** always run the full pipeline (Docker + Helm release + Pages), so tagging still publishes even if the tagged commit is docs-only.
+- **Images:** **Not** built or pushed on ordinary merges to `main` (so every PR merge does not publish a new GHCR image). Docker images are **built and pushed** when you push a **semver tag** (`v*`) or run **Actions → “CI, Docker, and Release” → Run workflow** (`workflow_dispatch`), which can refresh `:latest`. **PRs** that change application code still **build** the image in CI (without pushing) to validate the `Dockerfile`. Documentation-only commits are skipped for Docker via the `paths` filter on the `test` job’s dependency chain where applicable. **Semver tags** always run the full release pipeline (Docker + Helm + Pages), including when the tagged commit is docs-only.
 - **Chart:** Linted on every PR (`helm lint`). Packaged and published **only** on semver tags in the same workflow as Docker—no manual `helm package` for official artifacts.
 - **Dependencies:** Dependabot updates Python and Actions; chart template changes are reviewed in normal PRs.

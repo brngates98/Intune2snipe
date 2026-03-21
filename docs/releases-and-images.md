@@ -2,9 +2,11 @@
 
 ## Why pin a version?
 
-- **`latest`** tracks the newest default-branch build; it can change without notice.  
+- **`latest`** on GHCR is updated when a maintainer runs a **release** (semver **`v*`** tag) or triggers **workflow_dispatch** for the CI workflow — **not** on every merge to `main`, so the registry is not filled with one image per commit. Prefer a **semver image tag** for production.  
 - **Semver tags** (e.g. `1.2.3` from git tag `v1.2.3`) give you a **stable** image and a clear upgrade path.  
 - **GitHub Releases** attach the **Helm chart** package (`.tgz`) for the same version when maintainers tag releases.  
+
+**Process:** Requiring **pull requests** before merging to `main` (branch protection) is recommended for review, but it does **not** by itself reduce image count — each merged PR still updates `main`. Release-driven Docker pushes (above) are what limit published images.
 
 ## Where artifacts live
 

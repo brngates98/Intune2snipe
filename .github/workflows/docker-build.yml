@@ -1,6 +1,7 @@
 # Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, GitHub Pages Helm index.
-# Documentation-only commits (markdown, docs/, issue templates, Cursor rules, LICENSE) do not
-# build or push Docker images. Semver tags and workflow_dispatch always run the full pipeline.
+# Documentation-only commits do not build Docker. Pushes to main do NOT push images (avoids a new
+# GHCR image on every merge); images are published on semver tags and workflow_dispatch. PRs with
+# code changes still run docker build --no-push to validate the Dockerfile.
 name: CI, Docker, and Release
 
 on:
@@ -89,9 +90,9 @@ jobs:
     name: Build and push Docker image
     needs: [test, changes]
     if: |
-      needs.changes.outputs.code == 'true' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
+      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v')) ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -117,7 +118,6 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

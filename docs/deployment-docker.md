@@ -29,10 +29,10 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 
 ## Image tags
 
-- **`latest`** — convenient for testing; moves with the default branch  
-- **`main`**, branch names — CI publishes these  
-- **`v1.0.0`** (semver git tags) — **recommended for production** pinning  
-- **Git SHA** tags — reproducible builds  
+- **`v1.0.0`** (semver from git tags `v1.0.0`) — **recommended for production**; CI **pushes** images when you push a **`v*`** tag (see [RELEASING.md](../RELEASING.md)).  
+- **`latest`** — updated when a release runs (same **`v*`** workflow) or when a maintainer runs the **CI, Docker, and Release** workflow manually (**workflow_dispatch**). It is **not** updated on every merge to `main`.  
+- **Semver rolling tags** — e.g. `1`, `1.2` from the same release job when using semver patterns.  
+- **Git SHA** — attached to **tag** builds for reproducibility; ordinary `main` merges do not publish a new image.  
 
 See [Releases & images](releases-and-images.md) for how this ties to GitHub Releases.
 

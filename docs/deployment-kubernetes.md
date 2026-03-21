@@ -15,6 +15,8 @@ The Secret must provide the same keys the app expects, for example:
 
 `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `SNIPEIT_URL`, `SNIPEIT_API_TOKEN`, `SNIPEIT_DEFAULT_STATUS`, and optionally `AZURE_GROUP_IDS`.
 
+Alternatively, set **`secrets.create: true`** and **`secrets.stringData`** in the Helm chart so it creates the Secret for you (see [Helm chart README](../charts/intune2snipe/README.md)); do not commit real values to git.
+
 ---
 
 ## Option 1 — Helm (recommended)

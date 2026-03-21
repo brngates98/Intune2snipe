@@ -1,8 +1,9 @@
 # Default values for intune2snipe — Intune → Snipe-IT sync CronJob
 # https://github.com/brngates98/intune2snipe/tree/main/charts/intune2snipe
 #
-# Credentials are not stored in values: create a Secret (see secrets.existingSecret)
-# with the same keys app.py expects (see docs/configuration.md).
+# Credentials: either set secrets.create=true and fill secrets.stringData below, or
+# keep secrets.create=false and provide an existing Secret (secrets.existingSecret).
+# Never commit real secrets to git — use -f secrets.yaml, CI variables, or External Secrets.
 
 # ------------------------------------------------------------------------------
 # Sync behavior (maps to python app.py CLI flags)
@@ -94,15 +95,31 @@ affinity: {}
 priorityClassName: ""
 
 # ------------------------------------------------------------------------------
-# Credentials — Secret with stringData keys consumed by app.py:
-#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
-#   SNIPEIT_URL, SNIPEIT_API_TOKEN, SNIPEIT_DEFAULT_STATUS
-# Optional: AZURE_GROUP_IDS (if sync.groups is not set)
+# Credentials (see docs/configuration.md for each variable)
 # ------------------------------------------------------------------------------
 secrets:
+  # If true, chart creates a Secret from secrets.stringData (name: secrets.name or <fullname>-secrets)
+  create: false
+
+  # Optional fixed name for the created Secret (default: "<fullname>-secrets", e.g. myrel-intune2snipe-secrets)
+  name: ""
+
+  # When create is false: use this existing Secret in the namespace
   existingSecret: intune2snipe-secrets
 
-# Legacy alias (deprecated): if non-empty, used when secrets.existingSecret is empty
+  # Used when secrets.create is true — maps to app.py environment variables
+  stringData:
+    azureTenantId: ""
+    azureClientId: ""
+    azureClientSecret: ""
+    # Must include /api/v1 (e.g. https://snipe.example.com/api/v1)
+    snipeitUrl: ""
+    snipeitApiToken: ""
+    snipeitDefaultStatus: "Ready to Deploy"
+    # Optional; comma-separated group object IDs (same as AZURE_GROUP_IDS)
+    azureGroupIds: ""
+
+# Legacy alias (deprecated): if non-empty, used when secrets.existingSecret is empty and secrets.create is false
 existingSecret: ""
 
 # ------------------------------------------------------------------------------

@@ -3,7 +3,7 @@ name: intune2snipe
 description: Run the Intune2snipe sync as a Kubernetes CronJob (Intune → Snipe-IT).
 type: application
 # Overridden on release via `helm package --version/--app-version` in CI
-version: 0.2.0
+version: 0.3.0
 appVersion: "0.1.0"
 keywords:
   - intune

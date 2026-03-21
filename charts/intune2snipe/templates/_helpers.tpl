@@ -41,3 +41,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "intune2snipe.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end }}
+
+{{/*
+Kubernetes Secret name for env vars: created by the chart or an existing Secret.
+*/}}
+{{- define "intune2snipe.secretName" -}}
+{{- if .Values.secrets.create }}
+{{- if .Values.secrets.name }}
+{{- .Values.secrets.name }}
+{{- else }}
+{{- printf "%s-secrets" (include "intune2snipe.fullname" .) }}
+{{- end }}
+{{- else }}
+{{- .Values.secrets.existingSecret | default .Values.existingSecret | default "intune2snipe-secrets" }}
+{{- end }}
+{{- end }}

@@ -14,7 +14,7 @@
 {{- if .Values.extraArgs }}
 {{- $args = concat $args .Values.extraArgs }}
 {{- end }}
-{{- $secretName := .Values.secrets.existingSecret | default .Values.existingSecret | default "intune2snipe-secrets" }}
+{{- $secretName := include "intune2snipe.secretName" . }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

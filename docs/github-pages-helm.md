@@ -26,6 +26,18 @@ Use your real **owner** and **repository** name in the URL (GitHub preserves rep
 
 **Private repositories:** GitHub Pages for private repos may require a paid plan or GitHub Enterprise; otherwise use chart assets from Releases or install from a [git path](deployment-kubernetes.md).
 
+## Troubleshooting
+
+### “Tag `v…` is not allowed to deploy to github-pages” (environment protection)
+
+The **Publish Helm repo (GitHub Pages)** job uses the **`github-pages`** [environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment). If that environment only allows deployments from **`main`** (or a fixed set of branches), **tag-triggered** runs are rejected.
+
+**Fix (one-time):** Repository → **Settings** → **Environments** → **`github-pages`** → **Deployment branches and tags** → allow tags that match your releases, e.g. **`v*`** (or **All branches and tags**, depending on your security preference). Save, then **re-run failed jobs** on the workflow run or push a new tag.
+
+### Node.js 20 deprecation warnings
+
+Some Actions (e.g. `azure/setup-helm`) may log Node 20 deprecation notices; they are warnings from the runner image, not necessarily a failure. Upgrade action versions when maintainers publish Node 24–compatible releases.
+
 ## Why not “Deploy from a branch”?
 
 You *can* publish Pages from a branch (e.g. `gh-pages`), but deploying **from Actions** keeps the Helm index in sync with releases without maintaining an extra branch. The workflow is the single source of truth.

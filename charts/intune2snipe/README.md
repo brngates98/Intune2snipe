@@ -2,6 +2,8 @@
 
 Deploys the [Intune2snipe](https://github.com/brngates98/intune2snipe) sync as a `CronJob`.
 
+**User-facing documentation:** [Documentation hub](../../docs/README.md) · [Kubernetes deployment](../../docs/deployment-kubernetes.md)
+
 ## Prerequisites
 
 - Kubernetes 1.21+

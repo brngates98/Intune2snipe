@@ -22,4 +22,4 @@ Single-purpose repo: sync **Microsoft Intune** devices to **Snipe-IT** via `app.
 
 ## Human context
 
-See `AGENTS.md` and `README.md` for full environment variables and troubleshooting.
+User-facing documentation: **`docs/README.md`** (hub). `README.md` is a short landing page. Maintainer notes: `AGENTS.md`, `RELEASING.md`.

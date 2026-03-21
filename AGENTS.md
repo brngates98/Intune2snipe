@@ -27,5 +27,6 @@ Templates live in `.github/ISSUE_TEMPLATE/`. Labels **BUG**, **TODO**, **ENHANCE
 
 ## Related docs
 
-- [README.md](README.md) — user-facing install, env vars, Docker/Kubernetes.
+- **[docs/README.md](docs/README.md)** — navigable documentation hub for end users.
+- [README.md](README.md) — short project overview and links into `docs/`.
 - [.github/LABELS.md](.github/LABELS.md) — creating GitHub labels.

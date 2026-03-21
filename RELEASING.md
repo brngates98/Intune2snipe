@@ -1,5 +1,7 @@
 # Releases and versioning
 
+End-user context on tags and images: **[docs/releases-and-images.md](docs/releases-and-images.md)**.
+
 ## Why tag releases if we already push Docker images?
 
 - **Traceability:** A [GitHub Release](https://github.com/brngates98/intune2snipe/releases) ties a git tag, changelog, and artifacts to the exact image digest users run.

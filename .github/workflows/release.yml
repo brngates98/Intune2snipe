@@ -65,3 +65,32 @@ jobs:
         run: |
           PKG=$(ls intune2snipe-*.tgz)
           helm push "$PKG" "oci://ghcr.io/${{ github.repository_owner }}/intune2snipe"
+
+  helm-github-pages:
+    name: Publish Helm repo index (GitHub Pages)
+    needs: helm-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Build Helm repository index
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash .github/scripts/update-helm-repo-index.sh
+
+      - name: Deploy index to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./helm-chart-repo
+          force_orphan: true

@@ -1,6 +1,7 @@
 # Releases and versioning
 
-End-user context on tags and images: **[docs/releases-and-images.md](docs/releases-and-images.md)**.
+End-user context on tags and images: **[docs/releases-and-images.md](docs/releases-and-images.md)**.  
+Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/github-pages-helm.md)** (enable Pages once).
 
 ## Why tag releases if we already push Docker images?
 
@@ -31,7 +32,8 @@ End-user context on tags and images: **[docs/releases-and-images.md](docs/releas
 4. The **Release** workflow (`.github/workflows/release.yml`) will:
    - Package the Helm chart with that version
    - Create a GitHub Release with generated notes and attach `intune2snipe-1.0.0.tgz`
-   - Push the chart to GHCR as an OCI package (if configured; see workflow)
+   - Push the chart to GHCR as an OCI package (best-effort; see workflow)
+   - Regenerate **`index.yaml`** on the **`gh-pages`** branch so `helm repo add https://<user>.github.io/<repo>/` stays current (requires [GitHub Pages enabled](docs/github-pages-helm.md) once)
 
 Docker images are built by the existing workflow on the same tag push.
 

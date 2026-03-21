@@ -19,6 +19,28 @@ The Secret must provide the same keys the app expects, for example:
 
 ## Option 1 — Helm (recommended)
 
+### A — `helm repo add` (chart hosted on this GitHub repo)
+
+After each **semver release**, CI publishes a Helm repository **`index.yaml`** on the **`gh-pages`** branch so you can add this repo like any other Helm chart source (packages still live on [GitHub Releases](https://github.com/brngates98/intune2snipe/releases); the index only points to them).
+
+**One-time:** enable [GitHub Pages](github-pages-helm.md) from the `gh-pages` branch (root).
+
+```bash
+helm repo add intune2snipe https://brngates98.github.io/intune2snipe/
+helm repo update
+helm search repo intune2snipe --versions
+```
+
+Then install a pinned version (create your `Secret` first; see [Helm chart README](../charts/intune2snipe/README.md) for values):
+
+```bash
+helm upgrade --install intune2snipe intune2snipe/intune2snipe \
+  --version 1.2.3 \
+  --namespace intune2snipe --create-namespace
+```
+
+### B — Install from a git clone path
+
 Chart path: [`charts/intune2snipe`](../charts/intune2snipe).
 
 ```bash
@@ -27,11 +49,13 @@ helm upgrade --install intune2snipe ./charts/intune2snipe \
   --set image.tag=1.2.3
 ```
 
+### Notes (both paths)
+
 - Create the Kubernetes **Secret** first (name must match `existingSecret`, default `intune2snipe-secrets`).  
 - Pin `image.tag` to a **semver** release tag in production, not only `latest`.  
 - Full values: [Helm chart README](../charts/intune2snipe/README.md)  
 
-Tagged releases also publish a chart `.tgz` on [GitHub Releases](https://github.com/brngates98/intune2snipe/releases); see [Releases & images](releases-and-images.md).
+See also [Releases & images](releases-and-images.md).
 
 ---
 

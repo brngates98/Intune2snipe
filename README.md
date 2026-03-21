@@ -19,6 +19,7 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** with optional filter
 | CLI flags, examples, group IDs | [Usage & CLI](docs/usage-and-cli.md) |
 | Docker pull, run, tags | [Deployment — Docker](docs/deployment-docker.md) |
 | Helm & Kubernetes manifest | [Deployment — Kubernetes](docs/deployment-kubernetes.md) |
+| `helm repo add` (index on GitHub Pages) | [GitHub Pages for Helm](docs/github-pages-helm.md) |
 | Sync behavior & field mapping | [How it works](docs/how-it-works.md) |
 | Common errors | [Troubleshooting](docs/troubleshooting.md) |
 | Version pins & GHCR | [Releases & images](docs/releases-and-images.md) |

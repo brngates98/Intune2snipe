@@ -4,6 +4,7 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
 
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/brngates98/intune2snipe/pkgs/container/intune2snipe)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Features
 
@@ -475,6 +476,7 @@ The sync process follows these steps:
 Intune2snipe/
 ├── app.py                          # Main application script
 ├── Dockerfile                       # Docker container definition
+├── LICENSE                          # MIT license
 ├── requirements.txt                 # Python dependencies
 ├── k8s/
 │   └── cronjob.yaml                # Kubernetes CronJob manifest
@@ -500,7 +502,7 @@ Contributions are welcome! Please feel free to:
 
 ## License
 
-[Add your license here]
+This project is released under the [MIT License](LICENSE). You may use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the software under the terms of that license.
 
 ## Support
 

@@ -1,4 +1,6 @@
 # Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, GitHub Pages Helm index.
+# Documentation-only commits (markdown, docs/, issue templates, Cursor rules, LICENSE) do not
+# build or push Docker images. Semver tags and workflow_dispatch always run the full pipeline.
 name: CI, Docker, and Release
 
 on:
@@ -23,7 +25,34 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  changes:
+    name: Detect code vs docs-only
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Paths filter
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!.github/ISSUE_TEMPLATE/**'
+              - '!.github/RELEASE_NOTES_TEMPLATE.md'
+              - '!.github/LABELS.md'
+              - '!.cursor/**'
+              - '!LICENSE'
+
   test:
+    needs: changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,7 +87,11 @@ jobs:
 
   build-and-push:
     name: Build and push Docker image
-    needs: test
+    needs: [test, changes]
+    if: |
+      needs.changes.outputs.code == 'true' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
     runs-on: ubuntu-latest
     permissions:
       contents: read

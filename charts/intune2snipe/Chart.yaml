@@ -1,0 +1,17 @@
+apiVersion: v2
+name: intune2snipe
+description: Run the Intune2snipe sync as a Kubernetes CronJob (Intune → Snipe-IT).
+type: application
+# Overridden on release via `helm package --version/--app-version` in CI
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - intune
+  - snipe-it
+  - mdm
+home: https://github.com/brngates98/intune2snipe
+sources:
+  - https://github.com/brngates98/intune2snipe
+maintainers:
+  - name: Intune2snipe contributors
+    url: https://github.com/brngates98/intune2snipe

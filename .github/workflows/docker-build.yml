@@ -41,6 +41,14 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v
 
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Helm lint (chart)
+        run: helm lint charts/intune2snipe
+
   build-and-push:
     needs: test
     runs-on: ubuntu-latest

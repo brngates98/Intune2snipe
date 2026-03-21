@@ -10,7 +10,8 @@ This repository is a **small, focused integration**: a Python CLI (`app.py`) tha
   - `GET /deviceManagement/managedDevices` (paginated)
   - Optional group filter: `GET /groups/{id}/members/microsoft.graph.device` (OData cast)
 - **Snipe-IT side:** Snipe-IT REST API under `SNIPEIT_URL` (must end with `/api/v1`). User resolution uses **equality** query params `email` and `username` on `GET /users`, not fuzzy `search`.
-- **Tests:** `pytest` in `tests/`; CI runs tests before Docker build (`.github/workflows/docker-build.yml`).
+- **Tests:** `pytest` in `tests/`; CI runs tests + `helm lint` before Docker build (`.github/workflows/docker-build.yml`).
+- **Deploy:** Docker image on GHCR; optional Helm chart in `charts/intune2snipe` (see chart README). Semver git tags (`v1.2.3`) trigger [RELEASING.md](RELEASING.md) (packaged chart + GitHub Release; optional OCI push to GHCR).
 - **Dependencies:** Pinned in `requirements.txt`; dev deps in `requirements-dev.txt`.
 
 ## Conventions for changes

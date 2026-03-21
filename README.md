@@ -253,6 +253,21 @@ The Kubernetes manifest includes a CronJob that runs the sync on a schedule (def
 
 **Secrets:** Do not commit real credentials. Store them with your preferred approach (for example [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets), [External Secrets Operator](https://external-secrets.io/), or [SOPS](https://github.com/getsops/sops)) and only apply rendered Secrets to the cluster.
 
+#### Helm (recommended for repeatable installs)
+
+A chart lives under [`charts/intune2snipe`](charts/intune2snipe). CI runs `helm lint` on every PR; **tagging `vMAJOR.MINOR.PATCH`** produces a [GitHub Release](https://github.com/brngates98/intune2snipe/releases) with a packaged chart (`.tgz`) and pushes the same chart to GHCR as OCI (best-effort—see [RELEASING.md](RELEASING.md)).
+
+```bash
+# Create the Secret first (same keys as plain manifest), then:
+helm upgrade --install intune2snipe ./charts/intune2snipe \
+  --namespace intune2snipe --create-namespace \
+  --set image.tag=1.2.3
+```
+
+Pin `image.tag` to a **semver** GHCR tag from a release, not only `latest`, in production. See the [chart README](charts/intune2snipe/README.md) for values.
+
+#### Raw manifest (`kubectl apply`)
+
 **Deployment Steps:**
 
 1. **Edit the Kubernetes manifest** (`k8s/cronjob.yaml`):
@@ -302,11 +317,15 @@ imagePullSecrets:
 - name: ghcr-secret
 ```
 
+### Releases and versioning
+
+Semantic version tags (`v1.0.0`) drive Docker tags **and** Helm chart packages. Pushing a tag creates a GitHub Release with the chart tarball and release notes; images are built by the same tag push. See [RELEASING.md](RELEASING.md) for the maintainer checklist and why pinning versions matters.
+
 ### CI/CD with GitHub Actions
 
 The repository includes a GitHub Actions workflow (`.github/workflows/docker-build.yml`) that automatically:
 
-- **Runs** `pytest` on Python 3.11 before any image build
+- **Runs** `pytest` on Python 3.11 and **`helm lint`** on `charts/intune2snipe` before any image build
 - **Builds** Docker images on push to `main`/`master` branches
 - **Pushes** images to GitHub Container Registry (GHCR) at `ghcr.io/<org>/<repo>`
 - **Tags** images with:
@@ -315,6 +334,8 @@ The repository includes a GitHub Actions workflow (`.github/workflows/docker-bui
   - Git SHA (short commit hash)
   - `latest` tag for default branch
 - **Builds** (but doesn't push) on pull requests for testing
+
+**Release workflow:** Pushing a semver tag `vMAJOR.MINOR.PATCH` also runs `.github/workflows/release.yml`, which packages the Helm chart and creates a GitHub Release (see [RELEASING.md](RELEASING.md)).
 
 **Workflow Triggers:**
 - Push to `main` or `master` branches
@@ -486,8 +507,11 @@ Intune2snipe/
 ├── pytest.ini                      # Pytest configuration
 ├── tests/
 │   └── test_app.py                 # Unit tests
+├── charts/
+│   └── intune2snipe/               # Helm chart (CronJob)
 ├── k8s/
-│   └── cronjob.yaml                # Kubernetes CronJob manifest
+│   └── cronjob.yaml                # Plain Kubernetes CronJob manifest
+├── RELEASING.md                    # Versioning and release process
 ├── .cursor/
 │   └── rules/
 │       └── intune2snipe.mdc        # Cursor project rules
@@ -495,7 +519,8 @@ Intune2snipe/
 │   ├── ISSUE_TEMPLATE/             # GitHub issue forms (BUG, TODO, etc.)
 │   ├── LABELS.md                   # How to create matching repo labels
 │   ├── workflows/
-│   │   └── docker-build.yml       # Tests + Docker build/push to GHCR
+│   │   ├── docker-build.yml       # Tests + Helm lint + Docker build/push to GHCR
+│   │   └── release.yml            # Helm package + GitHub Release on v* tags
 │   └── dependabot.yml              # Dependabot configuration
 └── README.md                        # This file
 ```

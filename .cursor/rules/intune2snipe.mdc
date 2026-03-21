@@ -11,7 +11,7 @@ Single-purpose repo: sync **Microsoft Intune** devices to **Snipe-IT** via `app.
 
 - **Auth:** MSAL `ConfidentialClientApplication` → Microsoft Graph (`DeviceManagementManagedDevices`, optional group members with OData cast to `microsoft.graph.device`).
 - **Target:** Snipe-IT REST API; hardware create/update/checkout; user lookup via `GET /users?email=` / `?username=` (exact match), not `search=`.
-- **Ops:** Docker (`Dockerfile`), optional `k8s/cronjob.yaml`, GH Actions builds image after `pytest`.
+- **Ops:** Docker (`Dockerfile`), `k8s/cronjob.yaml`, Helm `charts/intune2snipe`; CI runs `pytest` + `helm lint`; semver tags drive releases per `RELEASING.md`.
 
 ## Rules for edits
 

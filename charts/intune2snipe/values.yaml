@@ -1,0 +1,48 @@
+# Default values for intune2snipe.
+# https://github.com/brngates98/intune2snipe/tree/main/charts/intune2snipe
+
+# Container image (matches GHCR images built by CI)
+image:
+  repository: ghcr.io/brngates98/intune2snipe
+  # Pin to a release tag for production, e.g. "1.2.3" (image ghcr.io/.../intune2snipe:1.2.3)
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets: []
+# - name: ghcr-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+cronjob:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  restartPolicy: OnFailure
+
+# Extra arguments passed to app.py (e.g. platform filter, dry-run)
+extraArgs: []
+# - "--platform"
+# - "windows"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Name of an existing Secret in the release namespace with stringData keys:
+# AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+# SNIPEIT_URL, SNIPEIT_API_TOKEN, SNIPEIT_DEFAULT_STATUS
+# Optional: AZURE_GROUP_IDS
+#
+# Create before install, e.g. kubectl create secret generic intune2snipe-secrets --from-env-file=...
+existingSecret: intune2snipe-secrets
+
+podAnnotations: {}
+podLabels: {}
+securityContext: {}
+containerSecurityContext: {}

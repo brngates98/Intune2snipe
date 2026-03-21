@@ -2,7 +2,7 @@
 
 A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the ability to filter by device platform and Azure AD group membership.
 
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/yourorg/intune2snipe/pkgs/container/intune2snipe)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/brngates98/intune2snipe/pkgs/container/intune2snipe)
 [![Python Version](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 ## Features
@@ -36,7 +36,7 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourorg/intune2snipe.git
+   git clone https://github.com/brngates98/intune2snipe.git
    cd intune2snipe
    ```
 
@@ -56,10 +56,10 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/yourorg/intune2snipe:latest
+docker pull ghcr.io/brngates98/intune2snipe:latest
 ```
 
-**Note:** Replace `yourorg/intune2snipe` with your GitHub organization/username and repository name. The image path format is `ghcr.io/<org-or-username>/<repo-name>:<tag>`.
+**Note:** Replace `brngates98/intune2snipe` with your GitHub organization/username and repository name. The image path format is `ghcr.io/<org-or-username>/<repo-name>:<tag>`.
 
 **For private repositories**, authenticate first:
 
@@ -73,7 +73,7 @@ docker login ghcr.io -u YOUR_GITHUB_USERNAME
 **Or build locally:**
 
 ```bash
-git clone https://github.com/yourorg/intune2snipe.git
+git clone https://github.com/brngates98/intune2snipe.git
 cd intune2snipe
 docker build -t intune2snipe:latest .
 ```
@@ -188,11 +188,11 @@ This project includes a `Dockerfile` and Kubernetes manifest (`k8s/cronjob.yaml`
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/yourorg/intune2snipe:latest
+docker pull ghcr.io/brngates98/intune2snipe:latest
 
 # Or pull a specific tag/version
-docker pull ghcr.io/yourorg/intune2snipe:v1.0.0
-docker pull ghcr.io/yourorg/intune2snipe:main
+docker pull ghcr.io/brngates98/intune2snipe:v1.0.0
+docker pull ghcr.io/brngates98/intune2snipe:main
 ```
 
 **Note:** If the image is private, you'll need to authenticate first:
@@ -217,7 +217,7 @@ docker run --rm \
   -e SNIPEIT_URL="https://your-snipeit-url/api/v1" \
   -e SNIPEIT_API_TOKEN="<your-token>" \
   -e SNIPEIT_DEFAULT_STATUS="Ready to Deploy" \
-  ghcr.io/yourorg/intune2snipe:latest \
+  ghcr.io/brngates98/intune2snipe:latest \
   --platform windows --dry-run
 ```
 
@@ -225,7 +225,7 @@ docker run --rm \
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourorg/intune2snipe.git
+git clone https://github.com/brngates98/intune2snipe.git
 cd intune2snipe
 
 # Build the image
@@ -256,7 +256,7 @@ The Kubernetes manifest includes a CronJob that runs the sync on a schedule (def
    - Update the Secret values with your actual credentials (lines 9-15)
    - Update the image name to match your GHCR repository path (line 40):
      ```yaml
-     image: ghcr.io/yourorg/intune2snipe:latest
+     image: ghcr.io/brngates98/intune2snipe:latest
      ```
    - Customize the schedule if needed (line 24, cron format)
    - Adjust resource limits if necessary (lines 51-57)

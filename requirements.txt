@@ -1,3 +1,4 @@
-msal>=1.24.0
-requests>=2.31.0
+# Pinned for reproducible installs (see Dependabot for update PRs)
+msal==1.31.1
+requests==2.32.3
 

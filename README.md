@@ -25,8 +25,8 @@ A Python script to sync Microsoft Intune managed devices into Snipe-IT, with the
 
 - **Python 3.11+** (or use Docker)
 - **Azure AD App Registration** with **Application** permissions:
-  - `DeviceManagementManagedDevices.Read.All` (required)
-  - `Group.Read.All` (required if using group filtering)
+  - `DeviceManagementManagedDevices.Read.All` (required) — [List managedDevices](https://learn.microsoft.com/en-us/graph/api/intune-devices-manageddevice-list)
+  - `GroupMember.Read.All` or `Group.Read.All` (required if using group filtering) — [List group members](https://learn.microsoft.com/en-us/graph/api/group-list-members)
   - `User.Read.All` (required for user lookup and checkout)
 - **Snipe-IT API credentials** with write access
 - **Admin consent** granted for all Azure AD app permissions
@@ -251,6 +251,8 @@ The Kubernetes manifest includes a CronJob that runs the sync on a schedule (def
 - A Kubernetes cluster with access to pull images from GHCR
 - `kubectl` configured to access your cluster
 
+**Secrets:** Do not commit real credentials. Store them with your preferred approach (for example [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets), [External Secrets Operator](https://external-secrets.io/), or [SOPS](https://github.com/getsops/sops)) and only apply rendered Secrets to the cluster.
+
 **Deployment Steps:**
 
 1. **Edit the Kubernetes manifest** (`k8s/cronjob.yaml`):
@@ -304,6 +306,7 @@ imagePullSecrets:
 
 The repository includes a GitHub Actions workflow (`.github/workflows/docker-build.yml`) that automatically:
 
+- **Runs** `pytest` on Python 3.11 before any image build
 - **Builds** Docker images on push to `main`/`master` branches
 - **Pushes** images to GitHub Container Registry (GHCR) at `ghcr.io/<org>/<repo>`
 - **Tags** images with:
@@ -349,11 +352,11 @@ docker pull ghcr.io/<your-github-org>/<your-repo-name>:v1.0.0
 ### Dependabot
 
 This repository includes Dependabot configuration (`.github/dependabot.yml`) that automatically:
-- Checks for GitHub Actions updates weekly
+- Checks **pip** (`requirements.txt`) and **GitHub Actions** weekly
 - Groups Docker-related actions and GitHub actions into separate PRs
 - Creates pull requests for available updates
 
-Dependabot will automatically keep your GitHub Actions workflows up to date.
+Dependabot will propose dependency updates for the Python stack and CI actions.
 
 ## How It Works
 
@@ -378,7 +381,7 @@ The sync process follows these steps:
      - Status label
      - Notes indicating Intune import
    - Normalizes Android-Enterprise UPNs (removes GUID prefixes)
-   - Checks out the asset to the assigned user if found in Snipe-IT
+   - Checks out the asset to the assigned user if found in Snipe-IT via exact `email` / `username` filters on Snipe-IT `GET /api/v1/users` (see [Snipe-IT API — users](https://snipe-it.readme.io/reference/users))
 
 **Data Mapping:**
 - Intune `deviceName` → Snipe-IT `name`
@@ -397,7 +400,7 @@ The sync process follows these steps:
 - Check that the client secret hasn't expired
 
 **403 Forbidden when accessing groups:**
-- Verify `Group.Read.All` permission is granted
+- Verify `GroupMember.Read.All` or `Group.Read.All` is granted (see [List group members](https://learn.microsoft.com/en-us/graph/api/group-list-members))
 - Ensure admin consent has been granted
 - Check that the group IDs are correct and accessible
 
@@ -421,7 +424,7 @@ The sync process follows these steps:
 
 **Group filtering not working:**
 - Devices must be Azure AD registered/joined (not just Intune-managed)
-- The script matches devices using their Azure AD device object ID (`azureActiveDeviceId` or `azureADDeviceId`)
+- The script matches Intune [managedDevice](https://learn.microsoft.com/en-us/graph/api/resources/intune-devices-manageddevice) records to group members using the Azure AD device object id (`azureADDeviceId` on the managed device; `azureActiveDeviceId` is still accepted as a legacy alias if present)
 - Verify group IDs are correct and accessible
 
 ### Snipe-IT Issues
@@ -436,7 +439,7 @@ The sync process follows these steps:
 - The script will auto-create categories, manufacturers, and models, but status labels must exist
 
 **Checkout failed:**
-- Verify the user exists in Snipe-IT with a matching UPN/email
+- Verify the user exists in Snipe-IT with the same **email** (for UPNs containing `@`) or **username** as returned after UPN normalization (the sync uses equality filters, not fuzzy search)
 - Check that the UPN normalization is working correctly (especially for Android devices)
 - Ensure the Snipe-IT API token has write permissions
 
@@ -477,12 +480,16 @@ Intune2snipe/
 ├── app.py                          # Main application script
 ├── Dockerfile                       # Docker container definition
 ├── LICENSE                          # MIT license
-├── requirements.txt                 # Python dependencies
+├── requirements.txt                 # Python dependencies (pinned)
+├── requirements-dev.txt             # Test dependencies (pytest)
+├── pytest.ini                      # Pytest configuration
+├── tests/
+│   └── test_app.py                 # Unit tests
 ├── k8s/
 │   └── cronjob.yaml                # Kubernetes CronJob manifest
 ├── .github/
 │   ├── workflows/
-│   │   └── docker-build.yml       # CI/CD workflow for GHCR
+│   │   └── docker-build.yml       # Tests + Docker build/push to GHCR
 │   └── dependabot.yml              # Dependabot configuration
 └── README.md                        # This file
 ```
@@ -496,6 +503,7 @@ Contributions are welcome! Please feel free to:
 3. Update documentation as needed
 
 **Before submitting:**
+- Run `python -m pip install -r requirements.txt -r requirements-dev.txt` and `python -m pytest tests/ -v`
 - Test your changes with `--dry-run` first
 - Ensure code follows Python best practices
 - Update documentation if adding new features

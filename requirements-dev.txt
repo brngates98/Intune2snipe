@@ -1,0 +1,2 @@
+# Dev / CI only (tests)
+pytest==8.3.5

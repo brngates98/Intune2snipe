@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
   packages: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   helm-release:
@@ -67,11 +73,15 @@ jobs:
           helm push "$PKG" "oci://ghcr.io/${{ github.repository_owner }}/intune2snipe"
 
   helm-github-pages:
-    name: Publish Helm repo index (GitHub Pages)
+    name: Publish Helm repo (GitHub Pages via Actions)
     needs: helm-release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -88,9 +98,11 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: bash .github/scripts/update-helm-repo-index.sh
 
-      - name: Deploy index to gh-pages branch
-        uses: peaceiris/actions-gh-pages@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./helm-chart-repo
-          force_orphan: true
+          path: ./helm-chart-repo
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -21,9 +21,9 @@ The Secret must provide the same keys the app expects, for example:
 
 ### A — `helm repo add` (chart hosted on this GitHub repo)
 
-After each **semver release**, CI publishes a Helm repository **`index.yaml`** on the **`gh-pages`** branch so you can add this repo like any other Helm chart source (packages still live on [GitHub Releases](https://github.com/brngates98/intune2snipe/releases); the index only points to them).
+After each **semver release**, CI publishes a Helm repository **`index.yaml`** to **GitHub Pages** (via **Actions**) so you can add this repo like any other Helm chart source (packages still live on [GitHub Releases](https://github.com/brngates98/intune2snipe/releases); the index only points to them).
 
-**One-time:** enable [GitHub Pages](github-pages-helm.md) from the `gh-pages` branch (root).
+**One-time:** set [GitHub Pages → Source: **GitHub Actions**](github-pages-helm.md) in repository settings.
 
 ```bash
 helm repo add intune2snipe https://brngates98.github.io/intune2snipe/

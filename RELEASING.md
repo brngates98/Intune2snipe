@@ -33,7 +33,7 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
    - Package the Helm chart with that version
    - Create a GitHub Release with generated notes and attach `intune2snipe-1.0.0.tgz`
    - Push the chart to GHCR as an OCI package (best-effort; see workflow)
-   - Regenerate **`index.yaml`** on the **`gh-pages`** branch so `helm repo add https://<user>.github.io/<repo>/` stays current (requires [GitHub Pages enabled](docs/github-pages-helm.md) once)
+   - Deploy **`index.yaml`** to **GitHub Pages** via **Actions** so `helm repo add https://<user>.github.io/<repo>/` stays current (requires [Pages → Source: GitHub Actions](docs/github-pages-helm.md) once)
 
 Docker images are built by the existing workflow on the same tag push.
 

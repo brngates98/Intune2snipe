@@ -11,7 +11,7 @@ This repository is a **small, focused integration**: a Python CLI (`app.py`) tha
   - Optional group filter: `GET /groups/{id}/members/microsoft.graph.device` (OData cast)
 - **Snipe-IT side:** Snipe-IT REST API under `SNIPEIT_URL` (must end with `/api/v1`). User resolution uses **equality** query params `email` and `username` on `GET /users`, not fuzzy `search`.
 - **Tests:** `pytest` in `tests/`; CI runs tests + `helm lint` before Docker build (`.github/workflows/docker-build.yml`).
-- **Deploy:** Docker image on GHCR; Helm chart in `charts/intune2snipe`; semver tags (`v1.2.3`) run [RELEASING.md](RELEASING.md) (GitHub Release `.tgz`, optional OCI, **`index.yaml` on `gh-pages`** for `helm repo add` after [GitHub Pages](docs/github-pages-helm.md) is enabled).
+- **Deploy:** Docker image on GHCR; Helm chart in `charts/intune2snipe`; semver tags (`v1.2.3`) run [RELEASING.md](RELEASING.md) (GitHub Release `.tgz`, optional OCI, **`index.yaml` via GitHub Pages + Actions** for `helm repo add` after [Pages source is set to Actions](docs/github-pages-helm.md)).
 - **Dependencies:** Pinned in `requirements.txt`; dev deps in `requirements-dev.txt`.
 
 ## Conventions for changes

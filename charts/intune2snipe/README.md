@@ -11,7 +11,7 @@ Deploys the [Intune2snipe](https://github.com/brngates98/intune2snipe) sync as a
 
 ## Install from the GitHub-hosted Helm repo
 
-After [enabling GitHub Pages](../../docs/github-pages-helm.md) on the `gh-pages` branch:
+After [setting Pages → Source to **GitHub Actions**](../../docs/github-pages-helm.md):
 
 ```bash
 helm repo add intune2snipe https://brngates98.github.io/intune2snipe/

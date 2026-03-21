@@ -36,6 +36,10 @@ echo "$GITHUB_TOKEN" | docker login ghcr.io -u USERNAME --password-stdin
 
 See [Releases & images](releases-and-images.md) for how this ties to GitHub Releases.
 
+## Process user
+
+The image runs as a **non-root** user (`appuser`, UID **10001**). If you bind-mount files or set `securityContext` in Kubernetes, align ownership and permissions with that UID.
+
 ## Run the container
 
 Pass [configuration](configuration.md) via `-e` (and optional CLI args after the image):

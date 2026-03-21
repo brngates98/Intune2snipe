@@ -15,9 +15,13 @@ from app import (
     _format_summary,
     _parse_group_ids,
     fetch_group_device_ids,
+    normalize_snipe_url,
     normalize_upn,
     sync_device,
 )
+
+# Valid Azure AD group object ID shape for tests that exercise Graph URLs
+_SAMPLE_GROUP_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
 class TestNormalizeUpn:
@@ -50,10 +54,10 @@ class TestFetchGroupDeviceIds:
     def test_collects_device_ids(self) -> None:
         g = MagicMock()
         g.get_paginated.return_value = [{"id": "d1"}, {"id": "d2"}]
-        out = fetch_group_device_ids(g, ["g1"])
+        out = fetch_group_device_ids(g, [_SAMPLE_GROUP_UUID])
         assert out == {"d1", "d2"}
         g.get_paginated.assert_called_once()
-        assert "groups/g1" in g.get_paginated.call_args[0][0]
+        assert f"groups/{_SAMPLE_GROUP_UUID}" in g.get_paginated.call_args[0][0]
         assert "microsoft.graph.device" in g.get_paginated.call_args[0][0]
 
     def test_403_raises_runtime_error(self) -> None:
@@ -66,7 +70,34 @@ class TestFetchGroupDeviceIds:
 
         g.get_paginated.side_effect = boom
         with pytest.raises(RuntimeError, match="403 Forbidden"):
-            fetch_group_device_ids(g, ["g1"])
+            fetch_group_device_ids(g, [_SAMPLE_GROUP_UUID])
+
+    def test_invalid_group_id_skips_graph_call(self) -> None:
+        g = MagicMock()
+        out = fetch_group_device_ids(g, ["not-a-uuid"])
+        assert out == set()
+        g.get_paginated.assert_not_called()
+
+
+class TestSnipeUrlNormalization:
+    def test_appends_api_v1(self) -> None:
+        assert normalize_snipe_url("https://snipe.example.com") == (
+            "https://snipe.example.com/api/v1"
+        )
+
+
+class TestSnipeClientValidation:
+    def test_rejects_http_url(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "http://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            with pytest.raises(RuntimeError, match="HTTPS"):
+                SnipeITClient()
 
 
 class TestSnipeGetUserId:

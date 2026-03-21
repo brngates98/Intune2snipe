@@ -21,6 +21,8 @@ The workload reads the same environment variables as the container image; see [C
 
 **Secret keys** (whether you create the Secret or the chart does): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `SNIPEIT_URL`, `SNIPEIT_API_TOKEN`, `SNIPEIT_DEFAULT_STATUS`, and optionally `AZURE_GROUP_IDS` (or use **`sync.groups`** instead of duplicating group IDs in the Secret).
 
+For **certificate-based** Graph authentication (`AZURE_COMBINED_CERT_KEY` or split PEM variables) instead of a client secret, manage the `Secret` yourself (`secrets.create: false`) or add keys via a forked chart—the generated `Secret` template expects `azureClientSecret` today. See [Certificate authentication](../../docs/CERTIFICATE_CONFIG.md).
+
 Do not commit real credentials to git. Prefer a gitignored values file, CI secrets, or a secrets operator in production.
 
 ### Example: chart-managed Secret

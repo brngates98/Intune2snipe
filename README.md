@@ -30,10 +30,12 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** with optional filter
 ## Features
 
 - Fetch Intune devices via **Microsoft Graph**; filter by **OS** (`windows`, `android`, `ios`, `macos`, `all`)
-- Optional filter by **Azure AD group** membership
+- Graph auth via **client secret** or **X.509 certificate** (PEM), with optional fallback from cert to secret
+- Optional filter by **Azure AD group** membership (group IDs validated as UUIDs)
+- Optional **`--secret-store`** (AWS Secrets Manager, Vault, Azure Key Vault) and **`--limit`** for staged runs
 - Normalize Android Enterprise **UPN** prefixes; auto-create Snipe **categories / manufacturers / models**
 - Create or update assets; **check out** to Snipe users matched by **email** / **username**
-- **`--dry-run`**; Docker on **GHCR**; **Helm** chart + plain `k8s/` manifest
+- **`--dry-run`**; Docker on **GHCR** (non-root image); **Helm** chart + plain `k8s/` manifest; **Gitleaks** workflow for secret scanning
 
 ---
 
@@ -51,6 +53,8 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** with optional filter
 |------|---------|
 | [`docs/`](docs/) | **User documentation** (navigable hub) |
 | [`app.py`](app.py) | Application entrypoint |
+| [`secret_stores.py`](secret_stores.py) | Optional loaders for AWS / Vault / Azure Key Vault |
+| [`.env.example`](.env.example) | Template for local `.env` (not loaded in CI by default) |
 | [`charts/intune2snipe/`](charts/intune2snipe/) | Helm chart |
 | [`k8s/cronjob.yaml`](k8s/cronjob.yaml) | Sample CronJob + Secret |
 | [`RELEASING.md`](RELEASING.md) | Maintainer release process |

@@ -17,12 +17,16 @@ Usage:
     python3 app.py --dry-run --platform windows
     python3 app.py --dry-run --groups "group-id-1,group-id-2"
     python3 app.py --platform all
+    python3 app.py --limit 10
+    python3 app.py --secret-store aws-secrets-manager --secret-name my/secret
 
-Dependencies: requests, msal
+Dependencies: requests, msal, azure-identity (certificate auth), python-dotenv (optional .env).
+Secret backends (AWS, Vault, Azure Key Vault) need optional packages — see docs/configuration.md.
 """
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import logging
 import os
 import re
@@ -30,10 +34,27 @@ import sys
 import time
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
+from urllib.parse import urlparse
+
 import requests
 from msal import ConfidentialClientApplication
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
+from secret_stores import (
+    apply_secrets_to_env,
+    load_from_aws_secrets_manager,
+    load_from_azure_keyvault,
+    load_from_vault,
+)
 
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
 
@@ -46,7 +67,8 @@ log = logging.getLogger("intune2snipe")
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 
-DEFAULT_TIMEOUT = 30
+# (connect timeout, read timeout) — aligns with common production client defaults
+DEFAULT_TIMEOUT = (3.05, 30)
 
 # Refresh the Graph token this many seconds before MSAL expiry to avoid
 # mid-pagination failures on long syncs (see MSAL token response `expires_in`).
@@ -54,6 +76,72 @@ GRAPH_TOKEN_SKEW_SECONDS = 300
 
 # Regex to strip Android-Enterprise GUID prefixes from UPNs
 GUID_PREFIX = re.compile(r"^[0-9a-f]{32}")
+
+# Azure AD object IDs (group IDs) are UUIDs — reject malformed values early
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _is_placeholder(value: str | None) -> bool:
+    """Treat empty or README-style ``your-...`` values as unset."""
+    if not value or not str(value).strip():
+        return True
+    return str(value).strip().lower().startswith("your-")
+
+
+def _assemble_cert_pem() -> str | None:
+    """Build PEM bytes source from combined or split certificate env vars."""
+    combined = os.getenv("AZURE_COMBINED_CERT_KEY")
+    if combined and not _is_placeholder(combined):
+        return combined.strip()
+    cert = os.getenv("AZURE_CERTIFICATE_PEM")
+    key = os.getenv("AZURE_PRIVATE_KEY_PEM")
+    if cert and key and not _is_placeholder(cert) and not _is_placeholder(key):
+        return f"{cert.strip()}\n{key.strip()}"
+    return None
+
+
+def normalize_snipe_url(url: str) -> str:
+    """Ensure ``SNIPEIT_URL`` ends with ``/api/v1`` when a base URL is given."""
+    u = (url or "").strip()
+    if not u:
+        return u
+    u = u.rstrip("/")
+    if u.endswith("/api/v1"):
+        return u
+    if u.endswith("/api"):
+        u = u + "/v1"
+    elif not u.endswith("/api/v1"):
+        u = u + "/api/v1"
+    log.warning("SNIPEIT_URL normalized to: %s", u)
+    return u
+
+
+def validate_snipe_url(url: str) -> None:
+    """Require HTTPS and a hostname; block literal private IPs unless opted in."""
+    if not url:
+        raise ValueError("SNIPEIT_URL is empty.")
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"SNIPEIT_URL must use HTTPS (got scheme {parsed.scheme!r}).")
+    if not parsed.hostname:
+        raise ValueError("SNIPEIT_URL has no valid hostname.")
+    allow_private = os.getenv("SNIPEIT_ALLOW_PRIVATE_IP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        return  # hostname is not an IP literal
+    if not allow_private and (ip.is_private or ip.is_loopback or ip.is_link_local):
+        raise ValueError(
+            "SNIPEIT_URL must not point to a private, loopback, or link-local IP "
+            "unless SNIPEIT_ALLOW_PRIVATE_IP is set."
+        )
 
 
 def _http_session() -> requests.Session:
@@ -90,16 +178,50 @@ def _parse_group_ids(env_val: str | None) -> list[str]:
 
 
 class GraphClient:
-    """Microsoft Graph API client using MSAL client credentials."""
+    """Microsoft Graph API client using certificate or client-secret credentials."""
 
     def __init__(self) -> None:
         self._token: str | None = None
         self._token_expires_at: float | None = None
-        self._tenant_id = os.getenv("AZURE_TENANT_ID", "")
-        self._client_id = os.getenv("AZURE_CLIENT_ID", "")
-        self._client_secret = os.getenv("AZURE_CLIENT_SECRET", "")
+        self._tenant_id = os.getenv("AZURE_TENANT_ID", "").strip()
+        self._client_id = os.getenv("AZURE_CLIENT_ID", "").strip()
+        self._client_secret = os.getenv("AZURE_CLIENT_SECRET", "").strip()
+        self._cert_pem = _assemble_cert_pem()
+        self._has_valid_cert = bool(self._cert_pem) and not _is_placeholder(self._cert_pem)
+        self._has_valid_secret = bool(self._client_secret) and not _is_placeholder(
+            self._client_secret
+        )
+        self._cert_credential: Any = None
+        self._cert_disabled = False
         self._app: ConfidentialClientApplication | None = None
         self._session = _http_session()
+
+        if not self._tenant_id or _is_placeholder(self._tenant_id):
+            raise RuntimeError(
+                "Azure tenant not configured. Set AZURE_TENANT_ID to your directory ID."
+            )
+        if not self._client_id or _is_placeholder(self._client_id):
+            raise RuntimeError(
+                "Azure application not configured. Set AZURE_CLIENT_ID to the app registration client ID."
+            )
+        if not self._has_valid_cert and not self._has_valid_secret:
+            raise RuntimeError(
+                "Azure authentication not configured. Set either certificate variables "
+                "(AZURE_COMBINED_CERT_KEY, or AZURE_CERTIFICATE_PEM plus AZURE_PRIVATE_KEY_PEM) "
+                "or AZURE_CLIENT_SECRET."
+            )
+
+    def _get_cert_credential(self) -> Any:
+        if self._cert_credential is None:
+            from azure.identity import CertificateCredential
+
+            pem = (self._cert_pem or "").encode("utf-8")
+            self._cert_credential = CertificateCredential(
+                tenant_id=self._tenant_id,
+                client_id=self._client_id,
+                certificate_data=pem,
+            )
+        return self._cert_credential
 
     def _ensure_auth(self) -> None:
         now = time.time()
@@ -112,30 +234,50 @@ class GraphClient:
 
         self._token = None
         self._token_expires_at = None
-        if not self._tenant_id or not self._client_id or not self._client_secret:
-            raise RuntimeError(
-                "Azure credentials not configured. Set AZURE_TENANT_ID, "
-                "AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET environment variables."
+
+        if self._has_valid_cert and not self._cert_disabled:
+            try:
+                cred = self._get_cert_credential()
+                tr = cred.get_token("https://graph.microsoft.com/.default")
+                self._token = tr.token
+                self._token_expires_at = float(tr.expires_on)
+                log.info(
+                    "Authenticated with Microsoft Graph (certificate; token expires at %s epoch)",
+                    self._token_expires_at,
+                )
+                return
+            except Exception as e:
+                log.error("Certificate authentication failed: %s", e)
+                if not self._has_valid_secret:
+                    raise RuntimeError(
+                        "Certificate authentication failed and no AZURE_CLIENT_SECRET is set for fallback."
+                    ) from e
+                log.warning("Falling back to client secret authentication")
+                self._cert_disabled = True
+
+        if self._has_valid_secret:
+            self._app = ConfidentialClientApplication(
+                client_id=self._client_id,
+                client_credential=self._client_secret,
+                authority=f"https://login.microsoftonline.com/{self._tenant_id}",
             )
-        self._app = ConfidentialClientApplication(
-            client_id=self._client_id,
-            client_credential=self._client_secret,
-            authority=f"https://login.microsoftonline.com/{self._tenant_id}",
-        )
-        result = self._app.acquire_token_for_client(
-            scopes=["https://graph.microsoft.com/.default"]
-        )
-        if "access_token" not in result:
-            raise RuntimeError(
-                f"Failed to acquire Graph access token: {result.get('error_description', result)}"
+            result = self._app.acquire_token_for_client(
+                scopes=["https://graph.microsoft.com/.default"]
             )
-        self._token = result["access_token"]
-        expires_in = int(result.get("expires_in", 3600))
-        self._token_expires_at = time.time() + expires_in
-        log.info(
-            "Authenticated with Microsoft Graph (access token expires in %s seconds)",
-            expires_in,
-        )
+            if "access_token" not in result:
+                raise RuntimeError(
+                    f"Failed to acquire Graph access token: {result.get('error_description', result)}"
+                )
+            self._token = result["access_token"]
+            expires_in = int(result.get("expires_in", 3600))
+            self._token_expires_at = time.time() + expires_in
+            log.info(
+                "Authenticated with Microsoft Graph (client secret; token expires in %s seconds)",
+                expires_in,
+            )
+            return
+
+        raise RuntimeError("No valid Microsoft Graph authentication method available.")
 
     def _refresh_token(self) -> None:
         self._token = None
@@ -170,12 +312,18 @@ class SnipeITClient:
     """Snipe-IT API client."""
 
     def __init__(self) -> None:
-        self._base_url = os.getenv("SNIPEIT_URL", "").rstrip("/")
-        self._token = os.getenv("SNIPEIT_API_TOKEN", "")
-        if not self._base_url or not self._token:
+        raw_url = os.getenv("SNIPEIT_URL", "")
+        normalized = normalize_snipe_url(raw_url)
+        try:
+            validate_snipe_url(normalized)
+        except ValueError as e:
+            raise RuntimeError(str(e)) from e
+        self._base_url = normalized.rstrip("/")
+        self._token = os.getenv("SNIPEIT_API_TOKEN", "").strip()
+        if not self._base_url or not self._token or _is_placeholder(self._token):
             raise RuntimeError(
-                "Snipe-IT credentials not configured. Set SNIPEIT_URL and "
-                "SNIPEIT_API_TOKEN environment variables."
+                "Snipe-IT credentials not configured. Set SNIPEIT_URL (HTTPS, ending with /api/v1) "
+                "and SNIPEIT_API_TOKEN."
             )
         self._session = _http_session()
         # Cache lookups to avoid repeated API calls (keyed by normalized lookup key)
@@ -410,6 +558,9 @@ def fetch_group_device_ids(graph: GraphClient, group_ids: list[str]) -> set[str]
     for group_id in group_ids:
         if not group_id:
             continue
+        if not UUID_PATTERN.match(group_id):
+            log.warning("Skipping invalid group ID (expected UUID): %s", group_id)
+            continue
         try:
             url = (
                 f"https://graph.microsoft.com/v1.0/groups/{group_id}"
@@ -582,6 +733,36 @@ def _format_summary(counts: dict[SyncOutcome, int], dry_run: bool) -> str:
     return prefix + "Summary: " + (", ".join(parts) if parts else "no actions")
 
 
+def _load_secrets_from_cli(args: argparse.Namespace) -> None:
+    """Populate process env from an external store before clients read configuration."""
+    if not args.secret_store:
+        return
+    if args.secret_store == "aws-secrets-manager":
+        if not args.secret_name:
+            log.error("--secret-name is required for AWS Secrets Manager")
+            sys.exit(1)
+        secrets = load_from_aws_secrets_manager(args.secret_name, args.aws_region)
+        apply_secrets_to_env(secrets)
+    elif args.secret_store == "vault":
+        vault_addr = args.vault_addr or os.getenv("VAULT_ADDR")
+        vault_path = args.vault_path or args.secret_name
+        if not vault_addr:
+            log.error("--vault-addr or VAULT_ADDR is required for HashiCorp Vault")
+            sys.exit(1)
+        if not vault_path:
+            log.error("--vault-path or --secret-name is required for HashiCorp Vault")
+            sys.exit(1)
+        secrets = load_from_vault(vault_addr, vault_path)
+        apply_secrets_to_env(secrets)
+    elif args.secret_store == "azure-keyvault":
+        keyvault_url = args.keyvault_url or os.getenv("AZURE_KEYVAULT_URL")
+        if not keyvault_url:
+            log.error("--keyvault-url or AZURE_KEYVAULT_URL is required for Azure Key Vault")
+            sys.exit(1)
+        secrets = load_from_azure_keyvault(keyvault_url)
+        apply_secrets_to_env(secrets)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync Intune managed devices to Snipe-IT")
     parser.add_argument("--dry-run", action="store_true",
@@ -591,7 +772,53 @@ def main() -> None:
     parser.add_argument("--groups", type=str, default=None,
                         help="Comma-separated Azure AD group IDs to filter by. "
                              "Falls back to AZURE_GROUP_IDS env var.")
+    parser.add_argument(
+        "--secret-store",
+        type=str,
+        default=None,
+        choices=["aws-secrets-manager", "vault", "azure-keyvault"],
+        help="Load secrets from an external store (optional; requires extra Python packages)",
+    )
+    parser.add_argument(
+        "--secret-name",
+        type=str,
+        default=None,
+        help="Secret name or path (AWS: secret id; Vault: path if --vault-path omitted)",
+    )
+    parser.add_argument(
+        "--aws-region",
+        type=str,
+        default="us-east-1",
+        help="AWS region for Secrets Manager (default: us-east-1)",
+    )
+    parser.add_argument(
+        "--vault-addr",
+        type=str,
+        default=None,
+        help="HashiCorp Vault base URL (e.g. https://vault.example.com:8200)",
+    )
+    parser.add_argument(
+        "--vault-path",
+        type=str,
+        default=None,
+        help="Vault KV path (e.g. secret/data/intune2snipe)",
+    )
+    parser.add_argument(
+        "--keyvault-url",
+        type=str,
+        default=None,
+        help="Azure Key Vault URL (e.g. https://myvault.vault.azure.net/)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Process only the first N devices after filters (testing / rollout)",
+    )
     args = parser.parse_args()
+
+    _load_secrets_from_cli(args)
 
     group_ids: list[str] | None = None
     if args.groups:
@@ -603,9 +830,13 @@ def main() -> None:
     snipe = SnipeITClient()
 
     devices = fetch_managed_devices(graph, args.platform, group_ids=group_ids)
+    if args.limit is not None and args.limit >= 0:
+        devices = devices[: args.limit]
     filter_info = f"platform '{args.platform}'"
     if group_ids:
         filter_info += f" and {len(group_ids)} group(s)"
+    if args.limit is not None:
+        filter_info += f" (limit {args.limit})"
     log.info("Found %d Intune devices matching %s", len(devices), filter_info)
 
     category_id = snipe.get_or_create_category("Intune")

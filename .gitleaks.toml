@@ -1,0 +1,17 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+title = "Intune2snipe Gitleaks Config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholder values used in example and documentation files"
+stopwords = [
+    "your-private-key-content-here",
+    "your-certificate-content-here",
+    "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC",
+    "MIIDXTCCAkWgAwIBAgIJAKJ",
+    "your-snipeit.example.com",
+]

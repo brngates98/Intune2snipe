@@ -16,7 +16,14 @@ On Windows you may use `py -3.11 app.py` or `python app.py` depending on how Pyt
 |--------|-------------|
 | `--dry-run` | Log actions only; **no writes** to Snipe-IT |
 | `--platform` | One of: `windows`, `android`, `ios`, `macos`, `all` (default: `all`) |
-| `--groups` | Comma-separated Azure AD **group object IDs** (overrides `AZURE_GROUP_IDS` if set) |
+| `--groups` | Comma-separated Azure AD **group object IDs** (UUIDs; overrides `AZURE_GROUP_IDS` if set). Invalid IDs are skipped with a warning. |
+| `--limit N` | Process only the **first N** devices after filters (useful for testing) |
+| `--secret-store` | One of: `aws-secrets-manager`, `vault`, `azure-keyvault` — load env vars from a store before connecting (requires extra deps; see [Configuration](configuration.md)) |
+| `--secret-name` | AWS secret id/path, or Vault path when `--vault-path` is omitted |
+| `--aws-region` | AWS region for Secrets Manager (default `us-east-1`) |
+| `--vault-addr` | Vault base URL (or `VAULT_ADDR`) |
+| `--vault-path` | Vault KV path |
+| `--keyvault-url` | Azure Key Vault URL (or `AZURE_KEYVAULT_URL`) |
 
 ## Examples
 

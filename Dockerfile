@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+RUN useradd --system --uid 10001 --no-create-home appuser
+
 # Copy requirements first for better layer caching
 COPY requirements.txt .
 
@@ -9,10 +11,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code
-COPY app.py .
+COPY app.py secret_stores.py .
 
 # Make app.py executable
-RUN chmod +x app.py
+RUN chmod +x app.py && chown -R appuser:appuser /app
+
+USER appuser
 
 # Run the application
 ENTRYPOINT ["python3", "app.py"]

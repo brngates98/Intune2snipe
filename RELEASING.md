@@ -16,6 +16,7 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 
 - Use **Semantic Versioning**: `vMAJOR.MINOR.PATCH` on git tags (leading `v` is convention only).
 - **App / Docker / Helm / Pages:** One workflow (`.github/workflows/docker-build.yml`, **“CI, Docker, and Release”**) runs tests, then builds and pushes the **Docker image** to GHCR, then—**only on `v*` tags**—packages the Helm chart, creates the GitHub Release (`.tgz` asset), and deploys the Helm `index.yaml` to GitHub Pages. The chart is **not** pushed as a second GHCR package; use the Release asset or `helm repo add` from Pages.
+- **Secret scanning:** `.github/workflows/gitleaks.yml` runs **Gitleaks** on pushes and pull requests to `main` / `master` (in addition to the main CI workflow).
 - **Helm chart:** On each semver tag, `helm package` uses `--version` and `--app-version` from the tag so the chart matches the image.
 
 ## Release notes policy (SemVer)

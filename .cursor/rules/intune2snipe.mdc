@@ -1,29 +1,44 @@
 ---
-description: Intune2snipe project context — Intune→Snipe-IT Python sync, Graph & Snipe APIs, testing
+description: Intune2snipe — Intune/Graph + Snipe-IT APIs, Python sync, testing, releases
 alwaysApply: true
 ---
 
 # Intune2snipe
 
-Single-purpose repo: sync **Microsoft Intune** devices to **Snipe-IT** via `app.py` (Python 3.11+).
+Sync **Microsoft Intune** (MDM) devices → **Snipe-IT** assets via `app.py` (Python 3.11+). Not a web app: CLI + `requests` + MSAL.
 
-## Stack
+## Microsoft Graph & Intune
 
-- **Auth:** MSAL `ConfidentialClientApplication` → Microsoft Graph (`DeviceManagementManagedDevices`, optional group members with OData cast to `microsoft.graph.device`).
-- **Target:** Snipe-IT REST API; hardware create/update/checkout; user lookup via `GET /users?email=` / `?username=` (exact match), not `search=`.
-- **Ops:** Docker (`Dockerfile`), `k8s/cronjob.yaml`, Helm `charts/intune2snipe`; CI runs `pytest` + `helm lint`; semver tags drive releases (`RELEASING.md`) including **Helm `index.yaml` published with GitHub Pages from Actions** (`docs/github-pages-helm.md`).
+- **API surface:** [Microsoft Graph](https://learn.microsoft.com/en-us/graph/overview) only — **not** legacy Intune consoles APIs. Intune data comes from **managed devices** (`deviceManagement/managedDevices`).
+- **Auth:** Azure AD app registration, **client credentials** (daemon). MSAL `ConfidentialClientApplication`, scope `https://graph.microsoft.com/.default`. Env: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`.
+- **Read path:** `GET .../deviceManagement/managedDevices` — **[List managedDevices](https://learn.microsoft.com/en-us/graph/api/intune-devices-manageddevice-list)**; follow **`@odata.nextLink`** for all pages. Optional `$filter` on `operatingSystem` for platform. Token refresh before expiry so pagination does not 401 mid-run.
+- **Groups:** `--groups` / `AZURE_GROUP_IDS` → **[List group members](https://learn.microsoft.com/en-us/graph/api/group-list-members)** with OData cast **`microsoft.graph.device`**, intersect device IDs with managed devices.
+- **Permissions:** Typically `DeviceManagementManagedDevices.Read.All`; groups need `GroupMember.Read.All` or `Group.Read.All`; user flows may need `User.Read.All`. See `docs/configuration.md`.
+- **Docs:** `app.py` module docstring has canonical Graph + Snipe links — use them when changing behavior.
+
+## Snipe-IT
+
+- **Role:** Target **CMDB** — hardware assets, checkout, taxonomy (models/categories/manufacturers/status labels).
+- **Base URL:** `SNIPEIT_URL` **must** end with `/api/v1`. Bearer `SNIPEIT_API_TOKEN`.
+- **Endpoints used (under `/api/v1`):** `/hardware`, `/hardware/byserial`, `/hardware/{id}/checkout`, `/users` (with **`email`** / **`username`** query params for **exact** match — not fuzzy `search`), `/statuslabels`, `/categories`, `/manufacturers`, `/models`.
+- **Status:** `SNIPEIT_DEFAULT_STATUS` must match an **existing** status label name.
+- **Users:** Resolve Snipe user id by **equality** filters on `GET /users` — see [Snipe users API](https://snipe-it.readme.io/reference/users). UPNs from Graph may be normalized (e.g. strip Android Enterprise GUID prefix).
+
+## Ops & CI
+
+Docker, `k8s/`, Helm `charts/intune2snipe`; CI: `pytest` + `helm lint`; `v*` tags → release per `RELEASING.md` + Pages Helm index (`docs/github-pages-helm.md`).
 
 ## Rules for edits
 
-- Keep changes scoped; follow structure and logging in `app.py`.
-- Preserve pinned deps in `requirements.txt`; use `requirements-dev.txt` for pytest.
-- Validate with `python -m pytest tests/ -v`.
-- Never embed real tenant secrets or API tokens in code or docs.
+- Minimal diffs; match `app.py` structure, logging, types.
+- Never log or commit secrets (Azure secret, Snipe token, real tenant IDs).
+- Validate Graph/Snipe behavior against current docs (`app.py` links, `docs/configuration.md`).
+- Run `python -m pytest tests/ -v`.
 
 ## Releases (maintainers)
 
-- **Major** and **minor** `v*` tags require **comprehensive** release notes per **`RELEASING.md`**: commit **`.github/release-notes-<tag>.md`** (use **`.github/RELEASE_NOTES_TEMPLATE.md`**) before pushing the tag. **Patch** releases may use auto-generated GitHub notes only.
+**Major** / **minor** tags: comprehensive notes — `.github/release-notes-<tag>.md` from **`RELEASING.md`** + **`.github/RELEASE_NOTES_TEMPLATE.md`**. Patch: auto-generated notes OK.
 
-## Human context
+## Human docs
 
-User-facing documentation: **`docs/README.md`** (hub). `README.md` is a short landing page. Maintainer notes: `AGENTS.md`, `RELEASING.md`.
+**`docs/README.md`** hub; **`AGENTS.md`** full agent context.

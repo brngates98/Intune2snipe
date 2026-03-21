@@ -1,4 +1,5 @@
-name: Build and Push Docker Image
+# Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, OCI chart, GitHub Pages.
+name: CI, Docker, and Release
 
 on:
   push:
@@ -6,12 +7,16 @@ on:
       - main
       - master
     tags:
-      - 'v*'
+      - "v*"
   pull_request:
     branches:
       - main
       - master
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -20,6 +25,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -50,12 +57,12 @@ jobs:
         run: helm lint charts/intune2snipe
 
   build-and-push:
+    name: Build and push Docker image
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -96,3 +103,98 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  helm-release:
+    name: Helm package, GitHub Release, OCI chart
+    needs: build-and-push
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Parse version from tag
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "Tag must be semver: vMAJOR.MINOR.PATCH optional pre-release, got: $TAG"
+            exit 1
+          fi
+          VER="${TAG#v}"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Packaging Helm chart version $VER (from tag $TAG)"
+
+      - name: Package Helm chart
+        run: |
+          helm package charts/intune2snipe \
+            --version "${{ steps.meta.outputs.version }}" \
+            --app-version "${{ steps.meta.outputs.version }}"
+
+      - name: Create GitHub Release with chart artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: intune2snipe-*.tgz
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to GHCR for Helm OCI
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push chart to GHCR (OCI)
+        continue-on-error: true
+        run: |
+          PKG=$(ls intune2snipe-*.tgz)
+          helm push "$PKG" "oci://ghcr.io/${{ github.repository_owner }}/intune2snipe"
+
+  helm-github-pages:
+    name: Publish Helm repo (GitHub Pages)
+    needs: helm-release
+    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Build Helm repository index
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bash .github/scripts/update-helm-repo-index.sh
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./helm-chart-repo
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -15,8 +15,8 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 ## Version scheme
 
 - Use **Semantic Versioning**: `vMAJOR.MINOR.PATCH` on git tags (leading `v` is convention only).
-- **App / Docker:** CI already tags images with semver when you push `v*` tags (see `.github/workflows/docker-build.yml`).
-- **Helm chart:** On each release tag, CI runs `helm package` with `--version` and `--app-version` set from the tag so the chart version tracks the app.
+- **App / Docker / Helm / Pages:** One workflow (`.github/workflows/docker-build.yml`, **“CI, Docker, and Release”**) runs tests, then builds and pushes the Docker image, then—**only on `v*` tags**—packages the Helm chart, creates the GitHub Release, pushes the chart OCI (optional), and deploys the Helm `index.yaml` to GitHub Pages.
+- **Helm chart:** On each semver tag, `helm package` uses `--version` and `--app-version` from the tag so the chart matches the image.
 
 ## Maintainer: cut a release
 
@@ -29,16 +29,15 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
    git push origin v1.0.0
    ```
 
-4. The **Release** workflow (`.github/workflows/release.yml`) will:
-   - Package the Helm chart with that version
-   - Create a GitHub Release with generated notes and attach `intune2snipe-1.0.0.tgz`
-   - Push the chart to GHCR as an OCI package (best-effort; see workflow)
-   - Deploy **`index.yaml`** to **GitHub Pages** via **Actions** so `helm repo add https://<user>.github.io/<repo>/` stays current (requires [Pages → Source: GitHub Actions](docs/github-pages-helm.md) once)
+4. The same workflow (`.github/workflows/docker-build.yml`) runs, in order:
+   - **Test** → **Docker build/push to GHCR** (image tags include the semver from the tag, e.g. `1.0.0`, `latest` on default branch only for non-tag pushes)
+   - **Helm:** package chart, GitHub Release + `.tgz` asset, optional OCI push to GHCR
+   - **GitHub Pages:** deploy merged `index.yaml` for `helm repo add` (requires [Pages → Source: GitHub Actions](docs/github-pages-helm.md) once)
 
-Docker images are built by the existing workflow on the same tag push.
+Because **Helm release runs after Docker push**, the GHCR image for that tag is already published when the GitHub Release is created.
 
 ## Auto-maintenance
 
 - **Images:** Built on every push to `main` and on tags; no manual image build.
-- **Chart:** Linted on every PR (`helm lint`). Packaged and published **only** on semver tags via the release workflow—no manual `helm package` for official artifacts.
+- **Chart:** Linted on every PR (`helm lint`). Packaged and published **only** on semver tags in the same workflow as Docker—no manual `helm package` for official artifacts.
 - **Dependencies:** Dependabot updates Python and Actions; chart template changes are reviewed in normal PRs.

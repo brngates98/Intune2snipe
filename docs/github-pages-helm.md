@@ -34,6 +34,10 @@ The **Publish Helm repo (GitHub Pages)** job uses the **`github-pages`** [enviro
 
 **Fix (one-time):** Repository → **Settings** → **Environments** → **`github-pages`** → **Deployment branches and tags** → allow tags that match your releases, e.g. **`v*`** (or **All branches and tags**, depending on your security preference). Save, then **re-run failed jobs** on the workflow run or push a new tag.
 
+### Pages job fails while downloading the chart `.tgz`
+
+The workflow passes the packaged chart from the **Helm package** job to the **Pages** job via a workflow artifact so the index step does not depend on GitHub Releases CDN being ready immediately. If you still see curl/download errors locally when running `update-helm-repo-index.sh`, set **`CHART_LOCAL_DIR`** to a folder containing `intune2snipe-*.tgz` or rely on the longer retry loop against the release URL.
+
 ### Node.js 20 deprecation warnings
 
 Some Actions (e.g. `azure/setup-helm`) may log Node 20 deprecation notices; they are warnings from the runner image, not necessarily a failure. Upgrade action versions when maintainers publish Node 24–compatible releases.

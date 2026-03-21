@@ -111,6 +111,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      actions: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -137,6 +138,13 @@ jobs:
           helm package charts/intune2snipe \
             --version "${{ steps.meta.outputs.version }}" \
             --app-version "${{ steps.meta.outputs.version }}"
+
+      - name: Upload chart package for Pages job
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-package
+          path: intune2snipe-*.tgz
+          if-no-files-found: error
 
       - name: Create GitHub Release with chart artifact
         uses: softprops/action-gh-release@v2
@@ -168,6 +176,7 @@ jobs:
     permissions:
       pages: write
       id-token: write
+      actions: read
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -185,9 +194,16 @@ jobs:
         with:
           version: v3.16.2
 
+      - name: Download chart package from release job
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart-package
+          path: chart-download
+
       - name: Build Helm repository index
         env:
           TAG: ${{ github.ref_name }}
+          CHART_LOCAL_DIR: ${{ github.workspace }}/chart-download
         run: bash .github/scripts/update-helm-repo-index.sh
 
       - name: Upload Pages artifact

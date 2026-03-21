@@ -27,17 +27,29 @@ WORKDIR="${TMP}/charts"
 mkdir -p "$WORKDIR"
 cd "$WORKDIR"
 
-echo "Downloading ${CHART_FILE} from release ${TAG}..."
-for i in 1 2 3 4 5; do
-  if curl -fsSL -o "$CHART_FILE" "${BASE_URL}${CHART_FILE}"; then
-    break
+# Prefer a local .tgz (e.g. CI artifact from the same workflow) to avoid races where
+# GitHub Releases download URLs are not ready immediately after the release job finishes.
+if [[ -n "${CHART_LOCAL_DIR:-}" ]] && [[ -d "$CHART_LOCAL_DIR" ]]; then
+  found=$(find "$CHART_LOCAL_DIR" -maxdepth 1 -name 'intune2snipe-*.tgz' -print -quit)
+  if [[ -n "$found" && -f "$found" ]]; then
+    cp "$found" "$CHART_FILE"
+    echo "Using chart package from CHART_LOCAL_DIR: $found"
   fi
-  echo "Retry $i..."
-  sleep 3
-done
+fi
 
 if [[ ! -f "$CHART_FILE" ]]; then
-  echo "Failed to download chart package from ${BASE_URL}${CHART_FILE}"
+  echo "Downloading ${CHART_FILE} from release ${TAG}..."
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if curl -fsSL -o "$CHART_FILE" "${BASE_URL}${CHART_FILE}"; then
+      break
+    fi
+    echo "Retry $i..."
+    sleep 5
+  done
+fi
+
+if [[ ! -f "$CHART_FILE" ]]; then
+  echo "Failed to obtain chart package (artifact or ${BASE_URL}${CHART_FILE})"
   exit 1
 fi
 

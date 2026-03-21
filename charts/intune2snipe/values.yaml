@@ -1,31 +1,82 @@
-# Default values for intune2snipe.
+# Default values for intune2snipe — Intune → Snipe-IT sync CronJob
 # https://github.com/brngates98/intune2snipe/tree/main/charts/intune2snipe
+#
+# Credentials are not stored in values: create a Secret (see secrets.existingSecret)
+# with the same keys app.py expects (see docs/configuration.md).
 
-# Container image (matches GHCR images built by CI)
-image:
-  repository: ghcr.io/brngates98/intune2snipe
-  # Pin to a release tag for production, e.g. "1.2.3" (image ghcr.io/.../intune2snipe:1.2.3)
-  tag: latest
-  pullPolicy: Always
+# ------------------------------------------------------------------------------
+# Sync behavior (maps to python app.py CLI flags)
+# ------------------------------------------------------------------------------
+sync:
+  # Preview only — no writes to Snipe-IT
+  dryRun: false
 
-imagePullSecrets: []
-# - name: ghcr-secret
+  # Device OS filter: all | windows | android | ios | macos
+  platform: all
 
-nameOverride: ""
-fullnameOverride: ""
+  # Optional Azure AD group object IDs (comma-separated), passed as --groups.
+  # Leave empty to rely on AZURE_GROUP_IDS in the Secret, or set only one source.
+  groups: ""
 
+  # Extra raw arguments appended after dryRun/platform/groups (advanced)
+  extraArgs: []
+  # - "--some-future-flag"
+
+# ------------------------------------------------------------------------------
+# CronJob (schedule and job policy)
+# ------------------------------------------------------------------------------
 cronjob:
+  # Cron schedule (UTC unless timeZone is set)
   schedule: "0 2 * * *"
+
+  # Kubernetes 1.27+: IANA time zone name (e.g. "America/Chicago"). Empty = UTC per cluster.
+  timeZone: ""
+
+  # Pause scheduled runs without uninstalling
+  suspend: false
+
+  # Seconds after the scheduled time the job may still start; omit to use cluster default
+  startingDeadlineSeconds: null
+
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   restartPolicy: OnFailure
 
-# Extra arguments passed to app.py (e.g. platform filter, dry-run)
-extraArgs: []
-# - "--platform"
-# - "windows"
+  # Optional metadata on the CronJob resource
+  annotations: {}
+  labels: {}
 
+# ------------------------------------------------------------------------------
+# Container image
+# ------------------------------------------------------------------------------
+image:
+  repository: ghcr.io/brngates98/intune2snipe
+  # Image tag (e.g. semver from a release). Defaults to Chart.appVersion if empty.
+  tag: ""
+  # If set, pulls by digest and ignores tag (e.g. "sha256:abcd...")
+  digest: ""
+  pullPolicy: Always
+
+imagePullSecrets: []
+# - name: ghcr-secret
+
+# ------------------------------------------------------------------------------
+# Pod (template spec)
+# ------------------------------------------------------------------------------
+pod:
+  annotations: {}
+  labels: {}
+
+# Pod-level securityContext (spec.template.spec.securityContext)
+podSecurityContext: {}
+
+# Container-level securityContext
+containerSecurityContext: {}
+
+# ------------------------------------------------------------------------------
+# Resources
+# ------------------------------------------------------------------------------
 resources:
   requests:
     cpu: 100m
@@ -34,15 +85,33 @@ resources:
     cpu: 500m
     memory: 512Mi
 
-# Name of an existing Secret in the release namespace with stringData keys:
-# AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
-# SNIPEIT_URL, SNIPEIT_API_TOKEN, SNIPEIT_DEFAULT_STATUS
-# Optional: AZURE_GROUP_IDS
-#
-# Create before install, e.g. kubectl create secret generic intune2snipe-secrets --from-env-file=...
-existingSecret: intune2snipe-secrets
+# ------------------------------------------------------------------------------
+# Scheduling (optional)
+# ------------------------------------------------------------------------------
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
 
-podAnnotations: {}
-podLabels: {}
-securityContext: {}
-containerSecurityContext: {}
+# ------------------------------------------------------------------------------
+# Credentials — Secret with stringData keys consumed by app.py:
+#   AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET,
+#   SNIPEIT_URL, SNIPEIT_API_TOKEN, SNIPEIT_DEFAULT_STATUS
+# Optional: AZURE_GROUP_IDS (if sync.groups is not set)
+# ------------------------------------------------------------------------------
+secrets:
+  existingSecret: intune2snipe-secrets
+
+# Legacy alias (deprecated): if non-empty, used when secrets.existingSecret is empty
+existingSecret: ""
+
+# ------------------------------------------------------------------------------
+# Helm / Kubernetes naming
+# ------------------------------------------------------------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+# ------------------------------------------------------------------------------
+# Deprecated (will be removed): use sync.extraArgs instead
+# ------------------------------------------------------------------------------
+extraArgs: []

@@ -51,7 +51,7 @@ helm upgrade --install intune2snipe ./charts/intune2snipe \
 
 ### Notes (both paths)
 
-- Create the Kubernetes **Secret** first (name must match `existingSecret`, default `intune2snipe-secrets`).  
+- Create the Kubernetes **Secret** first (name must match **`secrets.existingSecret`**, default `intune2snipe-secrets`).  
 - Pin `image.tag` to a **semver** release tag in production, not only `latest`.  
 - Full values: [Helm chart README](../charts/intune2snipe/README.md)  
 

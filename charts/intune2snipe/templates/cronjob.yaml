@@ -1,11 +1,44 @@
+{{- $args := list }}
+{{- if .Values.sync.dryRun }}
+{{- $args = concat $args (list "--dry-run") }}
+{{- end }}
+{{- if and .Values.sync.platform (ne .Values.sync.platform "all") }}
+{{- $args = concat $args (list "--platform" .Values.sync.platform) }}
+{{- end }}
+{{- if .Values.sync.groups }}
+{{- $args = concat $args (list "--groups" .Values.sync.groups) }}
+{{- end }}
+{{- if .Values.sync.extraArgs }}
+{{- $args = concat $args .Values.sync.extraArgs }}
+{{- end }}
+{{- if .Values.extraArgs }}
+{{- $args = concat $args .Values.extraArgs }}
+{{- end }}
+{{- $secretName := .Values.secrets.existingSecret | default .Values.existingSecret | default "intune2snipe-secrets" }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: {{ include "intune2snipe.fullname" . }}
   labels:
     {{- include "intune2snipe.labels" . | nindent 4 }}
+    {{- with .Values.cronjob.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.cronjob.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   schedule: {{ .Values.cronjob.schedule | quote }}
+  {{- with .Values.cronjob.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  suspend: {{ .Values.cronjob.suspend }}
+  {{- if hasKey .Values.cronjob "startingDeadlineSeconds" }}
+  {{- with .Values.cronjob.startingDeadlineSeconds }}
+  startingDeadlineSeconds: {{ . }}
+  {{- end }}
+  {{- end }}
   successfulJobsHistoryLimit: {{ .Values.cronjob.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ .Values.cronjob.failedJobsHistoryLimit }}
   concurrencyPolicy: {{ .Values.cronjob.concurrencyPolicy }}
@@ -13,13 +46,13 @@ spec:
     spec:
       template:
         metadata:
-          {{- with .Values.podAnnotations }}
+          {{- with .Values.pod.annotations }}
           annotations:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           labels:
             {{- include "intune2snipe.selectorLabels" . | nindent 12 }}
-            {{- with .Values.podLabels }}
+            {{- with .Values.pod.labels }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
         spec:
@@ -28,13 +61,32 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           restartPolicy: {{ .Values.cronjob.restartPolicy }}
-          {{- with .Values.securityContext }}
+          {{- with .Values.podSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.priorityClassName }}
+          priorityClassName: {{ . | quote }}
+          {{- end }}
           containers:
             - name: intune2snipe
+              {{- if .Values.image.digest }}
+              image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+              {{- else }}
               image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              {{- end }}
               imagePullPolicy: {{ .Values.image.pullPolicy }}
               {{- with .Values.containerSecurityContext }}
               securityContext:
@@ -42,10 +94,12 @@ spec:
               {{- end }}
               envFrom:
                 - secretRef:
-                    name: {{ .Values.existingSecret | quote }}
-              {{- if .Values.extraArgs }}
+                    name: {{ $secretName | quote }}
+              {{- if gt (len $args) 0 }}
               args:
-                {{- toYaml .Values.extraArgs | nindent 16 }}
+                {{- range $args }}
+                - {{ . | quote }}
+                {{- end }}
               {{- end }}
               resources:
                 {{- toYaml .Values.resources | nindent 16 }}

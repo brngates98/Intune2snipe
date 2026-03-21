@@ -30,9 +30,11 @@ Use your real **owner** and **repository** name in the URL (GitHub preserves rep
 
 ### “Tag `v…` is not allowed to deploy to github-pages” (environment protection)
 
-The **Publish Helm repo (GitHub Pages)** job uses the **`github-pages`** [environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment). If that environment only allows deployments from **`main`** (or a fixed set of branches), **tag-triggered** runs are rejected.
+This happens when the workflow job is tied to the **`github-pages`** [environment](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment) and that environment only allows certain **branches**—so **tag** workflows are rejected.
 
-**Fix (one-time):** Repository → **Settings** → **Environments** → **`github-pages`** → **Deployment branches and tags** → allow tags that match your releases, e.g. **`v*`** (or **All branches and tags**, depending on your security preference). Save, then **re-run failed jobs** on the workflow run or push a new tag.
+**Fix A (repo settings):** **Settings** → **Environments** → **`github-pages`** → **Deployment branches and tags** → allow release tags, e.g. **`v*`**, then re-run the failed job or push the tag again.
+
+**Fix B (this repo’s workflow):** The Pages deploy job does **not** declare `environment: github-pages`, so tag-triggered releases are not blocked by that environment rule. If you fork and add `environment` back, use Fix A or allow tags on the environment.
 
 ### Pages job fails while downloading the chart `.tgz`
 

@@ -177,9 +177,9 @@ jobs:
       pages: write
       id-token: write
       actions: read
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # Do not set `environment: github-pages` here: the default github-pages environment
+    # often restricts deployments to branches only, which blocks tag-triggered releases.
+    # OIDC + pages:write still authorize the deploy (see actions/deploy-pages README).
     concurrency:
       group: pages
       cancel-in-progress: false

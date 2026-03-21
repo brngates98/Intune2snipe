@@ -478,6 +478,7 @@ The sync process follows these steps:
 ```
 Intune2snipe/
 ├── app.py                          # Main application script
+├── AGENTS.md                       # AI/agent and maintainer context
 ├── Dockerfile                       # Docker container definition
 ├── LICENSE                          # MIT license
 ├── requirements.txt                 # Python dependencies (pinned)
@@ -487,7 +488,12 @@ Intune2snipe/
 │   └── test_app.py                 # Unit tests
 ├── k8s/
 │   └── cronjob.yaml                # Kubernetes CronJob manifest
+├── .cursor/
+│   └── rules/
+│       └── intune2snipe.mdc        # Cursor project rules
 ├── .github/
+│   ├── ISSUE_TEMPLATE/             # GitHub issue forms (BUG, TODO, etc.)
+│   ├── LABELS.md                   # How to create matching repo labels
 │   ├── workflows/
 │   │   └── docker-build.yml       # Tests + Docker build/push to GHCR
 │   └── dependabot.yml              # Dependabot configuration
@@ -498,9 +504,11 @@ Intune2snipe/
 
 Contributions are welcome! Please feel free to:
 
-1. Open an issue to report bugs or suggest features
+1. Open an issue using a [GitHub issue template](https://github.com/brngates98/intune2snipe/tree/main/.github/ISSUE_TEMPLATE) (Bug, Feature Request, Enhancement, TODO). Repository labels **BUG**, **TODO**, **ENHANCEMENT**, and **FEATURE REQUEST** must exist once—see [`.github/LABELS.md`](.github/LABELS.md).
 2. Submit a pull request with improvements
 3. Update documentation as needed
+
+**AI / automation:** See [`AGENTS.md`](AGENTS.md) and [`.cursor/rules/intune2snipe.mdc`](.cursor/rules/intune2snipe.mdc) for project context aimed at coding assistants.
 
 **Before submitting:**
 - Run `python -m pip install -r requirements.txt -r requirements-dev.txt` and `python -m pytest tests/ -v`

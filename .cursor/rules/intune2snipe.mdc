@@ -1,0 +1,25 @@
+---
+description: Intune2snipe project context — Intune→Snipe-IT Python sync, Graph & Snipe APIs, testing
+alwaysApply: true
+---
+
+# Intune2snipe
+
+Single-purpose repo: sync **Microsoft Intune** devices to **Snipe-IT** via `app.py` (Python 3.11+).
+
+## Stack
+
+- **Auth:** MSAL `ConfidentialClientApplication` → Microsoft Graph (`DeviceManagementManagedDevices`, optional group members with OData cast to `microsoft.graph.device`).
+- **Target:** Snipe-IT REST API; hardware create/update/checkout; user lookup via `GET /users?email=` / `?username=` (exact match), not `search=`.
+- **Ops:** Docker (`Dockerfile`), optional `k8s/cronjob.yaml`, GH Actions builds image after `pytest`.
+
+## Rules for edits
+
+- Keep changes scoped; follow structure and logging in `app.py`.
+- Preserve pinned deps in `requirements.txt`; use `requirements-dev.txt` for pytest.
+- Validate with `python -m pytest tests/ -v`.
+- Never embed real tenant secrets or API tokens in code or docs.
+
+## Human context
+
+See `AGENTS.md` and `README.md` for full environment variables and troubleshooting.

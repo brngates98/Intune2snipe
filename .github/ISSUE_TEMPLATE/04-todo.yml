@@ -1,0 +1,39 @@
+name: TODO / Task
+description: Track internal work, refactors, or follow-ups (maintainers & contributors)
+title: "[TODO] "
+labels:
+  - TODO
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for **actionable work items** that are not necessarily bugs (e.g. refactor, add tests, doc cleanup).
+
+        Prefer **Bug Report** if production behavior is wrong; prefer **Feature Request** / **Enhancement** for product direction.
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Task description
+      description: What needs to be done?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context / links
+      description: Related issues, PRs, or code paths (e.g. `app.py` Graph client).
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority (self-assessed)
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: false

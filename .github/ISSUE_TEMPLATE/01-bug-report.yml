@@ -1,0 +1,62 @@
+name: Bug Report
+description: Report incorrect behavior, crashes, or regressions
+title: "[BUG] "
+labels:
+  - BUG
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you submit:** Search [existing issues](https://github.com/brngates98/intune2snipe/issues?q=is%3Aissue) for duplicates.
+
+        Use this template when something is **broken** or **wrong** (not for feature ideas—use Feature Request or Enhancement).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong in one or two sentences?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Set env …
+        2. Run `python3 app.py --dry-run …`
+        3. …
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Runtime, Snipe-IT version (if relevant), how you run the script (local / Docker / Kubernetes).
+      placeholder: Python 3.11, Docker image ghcr.io/…, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / errors
+      description: Redact secrets, tokens, and tenant IDs.
+    validations:
+      required: false

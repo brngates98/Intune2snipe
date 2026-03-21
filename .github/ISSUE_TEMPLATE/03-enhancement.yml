@@ -1,0 +1,36 @@
+name: Enhancement
+description: Improve existing behavior, performance, or developer experience
+title: "[ENHANCEMENT] "
+labels:
+  - ENHANCEMENT
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you submit:** Search [existing issues](https://github.com/brngates98/intune2snipe/issues?q=is%3Aissue) for duplicates.
+
+        Use this for **better** existing features (refactors, performance, clearer errors, docs structure). For brand-new capabilities, use **Feature Request**.
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior
+      description: What happens today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: improved
+    attributes:
+      label: Desired improvement
+      description: What should change and why?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria (optional)
+      description: How will we know this is done?
+    validations:
+      required: false

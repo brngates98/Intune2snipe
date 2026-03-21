@@ -1,0 +1,49 @@
+name: Feature Request
+description: Propose a new capability or workflow
+title: "[FEATURE REQUEST] "
+labels:
+  - FEATURE REQUEST
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Before you submit:** Search [existing issues](https://github.com/brngates98/intune2snipe/issues?q=is%3Aissue) for similar ideas.
+
+        Use this for **new** behavior or integrations. For improvements to existing behavior, consider **Enhancement** instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to accomplish that the project does not support today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work (CLI flags, env vars, API behavior)?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Primary area
+      options:
+        - Microsoft Graph / Intune
+        - Snipe-IT API
+        - CLI / configuration
+        - Docker / Kubernetes / CI
+        - Documentation
+        - Other
+    validations:
+      required: true

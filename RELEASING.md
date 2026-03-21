@@ -18,18 +18,39 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 - **App / Docker / Helm / Pages:** One workflow (`.github/workflows/docker-build.yml`, **“CI, Docker, and Release”**) runs tests, then builds and pushes the **Docker image** to GHCR, then—**only on `v*` tags**—packages the Helm chart, creates the GitHub Release (`.tgz` asset), and deploys the Helm `index.yaml` to GitHub Pages. The chart is **not** pushed as a second GHCR package; use the Release asset or `helm repo add` from Pages.
 - **Helm chart:** On each semver tag, `helm package` uses `--version` and `--app-version` from the tag so the chart matches the image.
 
+## Release notes policy (SemVer)
+
+Releases use tags `vMAJOR.MINOR.PATCH`. Compare the **new** version to the **last published** release to classify the bump.
+
+| Bump | When | Release notes |
+|------|------|----------------|
+| **Major** | `MAJOR` increases | **Required:** comprehensive notes (committed file; see below) |
+| **Minor** | `MINOR` increases, `MAJOR` unchanged | **Required:** comprehensive notes (committed file; see below) |
+| **Patch** | Only `PATCH` changes | **Optional:** GitHub auto-generated notes from merged PRs/commits are acceptable; add a committed file if the change needs extra context |
+
+**Comprehensive** means the GitHub Release body is **not** only the auto summary. It must help operators and integrators decide to upgrade. At minimum, include:
+
+- A short **summary** and **highlights** (user-visible behavior).
+- **Breaking changes** (or explicitly **None**).
+- **Upgrade / migration** steps (config, env vars, CLI, Helm values, or ops runbooks).
+- Pointers for **Docker** and **Helm** (image tag, chart version, where to install).
+- **Fixes** / notable internals if useful; **known issues** when relevant.
+
+Use the outline in **[`.github/RELEASE_NOTES_TEMPLATE.md`](.github/RELEASE_NOTES_TEMPLATE.md)**. For **major** and **minor** releases, copy it to **`.github/release-notes-<tag>.md`** (example: `.github/release-notes-v1.3.0.md`), fill it in, commit on `main`, **then** tag and push. CI will use that file for the GitHub Release body when it exists; otherwise it falls back to auto-generated notes (appropriate for most **patch** releases).
+
 ## Maintainer: cut a release
 
 1. Ensure `main` is green (tests + Docker build).
 2. Pick the next version (e.g. `1.0.0`).
-3. Create and push an annotated tag:
+3. For a **major** or **minor** release: add and commit `.github/release-notes-vX.Y.Z.md` as above.
+4. Create and push an annotated tag:
 
    ```bash
    git tag -a v1.0.0 -m "Release v1.0.0"
    git push origin v1.0.0
    ```
 
-4. The same workflow (`.github/workflows/docker-build.yml`) runs, in order:
+5. The same workflow (`.github/workflows/docker-build.yml`) runs, in order:
    - **Test** → **Docker build/push to GHCR** (image tags include the semver from the tag, e.g. `1.0.0`, `latest` on default branch only for non-tag pushes)
    - **Helm:** package chart, GitHub Release + `.tgz` asset, GitHub Pages `index.yaml`
    - **GitHub Pages:** deploy merged `index.yaml` for `helm repo add` (requires [Pages → Source: GitHub Actions](docs/github-pages-helm.md) once)

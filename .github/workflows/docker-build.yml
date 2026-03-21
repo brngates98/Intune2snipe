@@ -145,7 +145,31 @@ jobs:
           path: intune2snipe-*.tgz
           if-no-files-found: error
 
-      - name: Create GitHub Release with chart artifact
+      - name: Check for committed release notes (major/minor policy)
+        id: relnotes
+        run: |
+          CUSTOM=".github/release-notes-${GITHUB_REF_NAME}.md"
+          if [[ -f "$CUSTOM" ]]; then
+            echo "has_custom=true" >> "$GITHUB_OUTPUT"
+            echo "Using ${CUSTOM} for release body (see RELEASING.md)."
+          else
+            echo "has_custom=false" >> "$GITHUB_OUTPUT"
+            echo "No ${CUSTOM}; using auto-generated release notes."
+          fi
+
+      - name: Create GitHub Release (committed release notes)
+        if: steps.relnotes.outputs.has_custom == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: intune2snipe-*.tgz
+          generate_release_notes: false
+          body_path: .github/release-notes-${{ github.ref_name }}.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (auto-generated notes)
+        if: steps.relnotes.outputs.has_custom == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}

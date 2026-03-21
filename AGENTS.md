@@ -14,6 +14,10 @@ This repository is a **small, focused integration**: a Python CLI (`app.py`) tha
 - **Deploy:** Docker image on GHCR (`ghcr.io/<owner>/intune2snipe`); Helm chart in `charts/intune2snipe`; semver tags (`v1.2.3`) run [RELEASING.md](RELEASING.md) (GitHub Release `.tgz`, **`index.yaml` via GitHub Pages + Actions** for `helm repo add` after [Pages source is set to Actions](docs/github-pages-helm.md)).
 - **Dependencies:** Pinned in `requirements.txt`; dev deps in `requirements-dev.txt`.
 
+## Releases
+
+- **Major** and **minor** semver bumps (`v…` tag vs prior release) must ship **comprehensive** GitHub Release notes: commit `.github/release-notes-<tag>.md` before tagging (see **[`RELEASING.md`](RELEASING.md)** and **[`.github/RELEASE_NOTES_TEMPLATE.md`](.github/RELEASE_NOTES_TEMPLATE.md)**). **Patch** releases may rely on auto-generated notes unless extra detail is needed.
+
 ## Conventions for changes
 
 - Prefer **minimal diffs**; match existing style in `app.py` (sections, logging, type hints).

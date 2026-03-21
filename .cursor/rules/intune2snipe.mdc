@@ -20,6 +20,10 @@ Single-purpose repo: sync **Microsoft Intune** devices to **Snipe-IT** via `app.
 - Validate with `python -m pytest tests/ -v`.
 - Never embed real tenant secrets or API tokens in code or docs.
 
+## Releases (maintainers)
+
+- **Major** and **minor** `v*` tags require **comprehensive** release notes per **`RELEASING.md`**: commit **`.github/release-notes-<tag>.md`** (use **`.github/RELEASE_NOTES_TEMPLATE.md`**) before pushing the tag. **Patch** releases may use auto-generated GitHub notes only.
+
 ## Human context
 
 User-facing documentation: **`docs/README.md`** (hub). `README.md` is a short landing page. Maintainer notes: `AGENTS.md`, `RELEASING.md`.

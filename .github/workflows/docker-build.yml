@@ -1,14 +1,13 @@
 # Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, GitHub Pages Helm index.
-# Documentation-only commits do not build Docker. Pushes to main do NOT push images (avoids a new
-# GHCR image on every merge); images are published on semver tags and workflow_dispatch. PRs with
-# code changes still run docker build --no-push to validate the Dockerfile.
+# Unit tests (pytest) + helm lint run on every push to any branch, every PR to main/master, tags,
+# and workflow_dispatch. Docker push to GHCR only on semver tags + workflow_dispatch; PRs with
+# code changes also docker build without push.
 name: CI, Docker, and Release
 
 on:
   push:
     branches:
-      - main
-      - master
+      - "**"
     tags:
       - "v*"
   pull_request:

@@ -15,6 +15,7 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** with optional filter
 | Topic | Link |
 |--------|------|
 | First-time setup & dry run | [Getting started](docs/getting-started.md) |
+| Run as a local Python script (venv, cron) | [Run locally with Python](docs/run-local-python.md) |
 | Environment variables & Azure / Snipe setup | [Configuration](docs/configuration.md) |
 | CLI flags, examples, group IDs | [Usage & CLI](docs/usage-and-cli.md) |
 | Docker pull, run, tags | [Deployment — Docker](docs/deployment-docker.md) |

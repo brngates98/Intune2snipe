@@ -9,12 +9,19 @@
 
 ## Install (choose one)
 
-### Option A — Run from source
+### Option A — Run from source (regular Python script)
+
+Use a normal Python 3.11+ environment on your machine: clone the repo, create a **virtualenv**, install dependencies with `pip`, set [environment variables](configuration.md), then run `python3 app.py` (same entrypoint as Docker). Step-by-step instructions—including Windows venv commands, cron examples, and development installs—are in **[Run locally with Python](run-local-python.md)**.
+
+Quick version:
 
 ```bash
 git clone https://github.com/brngates98/intune2snipe.git
 cd intune2snipe
+python3 -m venv .venv && source .venv/bin/activate   # see run-local-python.md for Windows
 pip install -r requirements.txt
+# export AZURE_* and SNIPEIT_* (see Configuration)
+python3 app.py --dry-run --platform windows
 ```
 
 ### Option B — Pull the container image

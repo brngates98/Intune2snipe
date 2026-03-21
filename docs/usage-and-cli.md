@@ -6,7 +6,9 @@
 python3 app.py [OPTIONS]
 ```
 
-Entrypoint in Docker is the same (`python3 app.py`); pass extra args after the image name.
+Use the same invocation when running [from source with Python](run-local-python.md). In Docker, the image entrypoint is the same (`python3 app.py`); pass CLI options after the image name.
+
+On Windows you may use `py -3.11 app.py` or `python app.py` depending on how Python is installed.
 
 ## Options
 

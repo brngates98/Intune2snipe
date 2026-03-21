@@ -49,6 +49,7 @@ Templates live in `.github/ISSUE_TEMPLATE/`. Labels **BUG**, **TODO**, **ENHANCE
 ## Related docs
 
 - **[docs/README.md](docs/README.md)** — navigable documentation hub for end users.
+- **[docs/run-local-python.md](docs/run-local-python.md)** — run `app.py` with venv on a workstation (no container).
 - **[docs/configuration.md](docs/configuration.md)** — env vars, Azure app permissions, Snipe API token.
 - **[docs/how-it-works.md](docs/how-it-works.md)** — sync flow overview.
 - [README.md](README.md) — short project overview and links into `docs/`.

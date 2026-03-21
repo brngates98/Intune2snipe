@@ -15,7 +15,7 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 ## Version scheme
 
 - Use **Semantic Versioning**: `vMAJOR.MINOR.PATCH` on git tags (leading `v` is convention only).
-- **App / Docker / Helm / Pages:** One workflow (`.github/workflows/docker-build.yml`, **“CI, Docker, and Release”**) runs tests, then builds and pushes the Docker image, then—**only on `v*` tags**—packages the Helm chart, creates the GitHub Release, pushes the chart OCI (optional), and deploys the Helm `index.yaml` to GitHub Pages.
+- **App / Docker / Helm / Pages:** One workflow (`.github/workflows/docker-build.yml`, **“CI, Docker, and Release”**) runs tests, then builds and pushes the **Docker image** to GHCR, then—**only on `v*` tags**—packages the Helm chart, creates the GitHub Release (`.tgz` asset), and deploys the Helm `index.yaml` to GitHub Pages. The chart is **not** pushed as a second GHCR package; use the Release asset or `helm repo add` from Pages.
 - **Helm chart:** On each semver tag, `helm package` uses `--version` and `--app-version` from the tag so the chart matches the image.
 
 ## Maintainer: cut a release
@@ -31,7 +31,7 @@ Helm `helm repo add` from this GitHub repo: **[docs/github-pages-helm.md](docs/g
 
 4. The same workflow (`.github/workflows/docker-build.yml`) runs, in order:
    - **Test** → **Docker build/push to GHCR** (image tags include the semver from the tag, e.g. `1.0.0`, `latest` on default branch only for non-tag pushes)
-   - **Helm:** package chart, GitHub Release + `.tgz` asset, optional OCI push to GHCR
+   - **Helm:** package chart, GitHub Release + `.tgz` asset, GitHub Pages `index.yaml`
    - **GitHub Pages:** deploy merged `index.yaml` for `helm repo add` (requires [Pages → Source: GitHub Actions](docs/github-pages-helm.md) once)
 
 Because **Helm release runs after Docker push**, the GHCR image for that tag is already published when the GitHub Release is created.

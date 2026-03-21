@@ -1,4 +1,4 @@
-# Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, OCI chart, GitHub Pages.
+# Tests, Docker (GHCR), and on semver tags: Helm package, GitHub Release, GitHub Pages Helm index.
 name: CI, Docker, and Release
 
 on:
@@ -104,13 +104,12 @@ jobs:
           cache-to: type=gha,mode=max
 
   helm-release:
-    name: Helm package, GitHub Release, OCI chart
+    name: Helm package and GitHub Release
     needs: build-and-push
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
       actions: write
     steps:
       - name: Checkout repository
@@ -154,19 +153,6 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to GHCR for Helm OCI
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Push chart to GHCR (OCI)
-        continue-on-error: true
-        run: |
-          PKG=$(ls intune2snipe-*.tgz)
-          helm push "$PKG" "oci://ghcr.io/${{ github.repository_owner }}/intune2snipe"
 
   helm-github-pages:
     name: Publish Helm repo (GitHub Pages)

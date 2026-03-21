@@ -10,10 +10,9 @@
 
 | Artifact | Location |
 |----------|----------|
-| Docker / OCI image | `ghcr.io/brngates98/intune2snipe:<tag>` |
+| Docker image | `ghcr.io/brngates98/intune2snipe:<tag>` (the only container package; chart is not duplicated to GHCR) |
 | Helm chart tarball | [GitHub Releases](https://github.com/brngates98/intune2snipe/releases) (attached `.tgz`) |
 | Helm repo index (`helm repo add`) | [GitHub Pages from Actions](github-pages-helm.md) — `https://<user>.github.io/<repo>/index.yaml` |
-| Optional Helm OCI | May be pushed to GHCR as OCI (see repo CI); the Release asset is the portable fallback |
 
 ## Typical production usage
 

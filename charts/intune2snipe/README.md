@@ -77,10 +77,6 @@ helm upgrade --install intune2snipe intune2snipe/intune2snipe \
   --set image.tag=<matching-or-desired-app-tag>
 ```
 
-### From OCI (GHCR)
-
-Released charts may be pushed as OCI artifacts; see [RELEASING.md](../../RELEASING.md) for the **`oci://ghcr.io/...`** pattern and registry auth if the chart is private.
-
 ## Values overview
 
 | Section | Purpose |

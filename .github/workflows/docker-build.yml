@@ -171,7 +171,7 @@ jobs:
             --app-version "${{ steps.meta.outputs.version }}"
 
       - name: Upload chart package for Pages job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: helm-chart-package
           path: intune2snipe-*.tgz
@@ -237,7 +237,7 @@ jobs:
           version: v3.16.2
 
       - name: Download chart package from release job
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: helm-chart-package
           path: chart-download
@@ -249,10 +249,10 @@ jobs:
         run: bash .github/scripts/update-helm-repo-index.sh
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./helm-chart-repo
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

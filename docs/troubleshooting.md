@@ -44,6 +44,11 @@
 - User must exist in Snipe-IT with matching **email** (UPN with `@`) or **username** after normalization  
 - Confirm API token can write assets and checkout  
 
+**Checked-out user does not update**
+
+- Recent releases re-checkout on update when the Intune primary user changes  
+- When Intune clears the primary user, the sync checks the asset back in  
+
 **API / URL errors**
 
 - `SNIPEIT_URL` must end with **`/api/v1`**  

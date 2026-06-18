@@ -301,6 +301,31 @@ class TestSyncDeviceOutcomes:
         )
         snipe.checkout_asset.assert_not_called()
 
+    def test_update_checks_in_when_primary_user_cleared(self) -> None:
+        snipe = MagicMock()
+        snipe.find_asset_by_serial.return_value = {
+            "id": 10,
+            "assigned_to": {"id": 1, "name": "old@domain.com"},
+        }
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_user_id.return_value = None
+        snipe.update_asset.return_value = True
+        snipe.checkin_asset.return_value = True
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": None,
+        }
+        assert (
+            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            == SyncOutcome.UPDATED
+        )
+        snipe.checkin_asset.assert_called_once_with(10)
+        snipe.checkout_asset.assert_not_called()
+
 
 class TestAssignedUserId:
     def test_reads_assigned_to_id(self) -> None:

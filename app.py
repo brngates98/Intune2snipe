@@ -475,6 +475,18 @@ class SnipeITClient:
         log.error("Location checkout failed for asset %d: %s", asset_id, resp)
         return False
 
+    def checkin_asset(self, asset_id: int) -> bool:
+        now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            resp = self._post(f"/hardware/{asset_id}/checkin", {"checkin_at": now})
+        except requests.RequestException as e:
+            log.error("Checkin failed for asset %d: %s", asset_id, e)
+            return False
+        if resp.get("status") == "success":
+            return True
+        log.error("Checkin failed for asset %d: %s", asset_id, resp)
+        return False
+
 
 # ─── SYNC LOGIC ───────────────────────────────────────────────────────────────
 
@@ -651,15 +663,31 @@ def _apply_checkout_if_needed(
     *,
     dry_run: bool,
 ) -> bool:
-    """Check out asset when the current assignee/location differs from Intune."""
+    """Sync checkout/checkin when Intune primary user changes or is cleared."""
+    current = _assigned_target_id(existing, checkout_mode)
+
+    if not upn:
+        if current is not None:
+            if dry_run:
+                log.info(
+                    "[DRY RUN] Would check in asset %d (no Intune primary user)",
+                    asset_id,
+                )
+                return True
+            if snipe.checkin_asset(asset_id):
+                log.info("Checked in asset %d (no Intune primary user)", asset_id)
+                return True
+            return False
+        return True
+
     if not target_id:
         return True
-    if _assigned_target_id(existing, checkout_mode) == target_id:
+    if current == target_id:
         return True
     if checkout_mode == "location":
-        target_label = f"location for {upn}" if upn else "location"
+        target_label = f"location for {upn}"
     else:
-        target_label = f"user {upn}" if upn else "user"
+        target_label = f"user {upn}"
     if dry_run:
         log.info("[DRY RUN] Would checkout asset %d to %s", asset_id, target_label)
         return True

@@ -228,50 +228,80 @@ class SnipeITClient:
 
     # ── Lookups with exact matching ──────────────────────────────────────
 
-    def _find_exact(self, path: str, search: str, match_field: str = "name") -> int | None:
+    def _find_exact(
+        self,
+        path: str,
+        search: str,
+        match_field: str = "name",
+        *,
+        case_insensitive: bool = False,
+    ) -> int | None:
         """Search endpoint and return ID only if there's an exact name match."""
         data = self._get(path, params={"search": search})
         for row in data.get("rows", []):
-            if row.get(match_field) == search:
+            val = row.get(match_field)
+            if val is None:
+                continue
+            if case_insensitive:
+                if val.casefold() == search.casefold():
+                    return row["id"]
+            elif val == search:
                 return row["id"]
         return None
 
-    def get_or_create_category(self, name: str) -> int | None:
+    def get_or_create_category(self, name: str, *, dry_run: bool = False) -> int | None:
         if not name:
             return None
         if name in self._category_cache:
             return self._category_cache[name]
-        cat_id = self._find_exact("/categories", name)
+        cat_id = self._find_exact("/categories", name, case_insensitive=True)
         if cat_id:
             self._category_cache[name] = cat_id
             return cat_id
+        if dry_run:
+            return None
         resp = self._post("/categories", {"name": name, "category_type": "asset"})
         if resp.get("payload"):
             cat_id = resp["payload"]["id"]
             self._category_cache[name] = cat_id
             return cat_id
+        cat_id = self._find_exact("/categories", name, case_insensitive=True)
+        if cat_id:
+            self._category_cache[name] = cat_id
+            return cat_id
         log.warning("Could not create category '%s': %s", name, resp)
         return None
 
-    def get_or_create_manufacturer(self, name: str) -> int | None:
+    def get_or_create_manufacturer(self, name: str, *, dry_run: bool = False) -> int | None:
         if not name:
             return None
         if name in self._manufacturer_cache:
             return self._manufacturer_cache[name]
-        man_id = self._find_exact("/manufacturers", name)
+        man_id = self._find_exact("/manufacturers", name, case_insensitive=True)
         if man_id:
             self._manufacturer_cache[name] = man_id
             return man_id
+        if dry_run:
+            return None
         resp = self._post("/manufacturers", {"name": name})
         if resp.get("payload"):
             man_id = resp["payload"]["id"]
+            self._manufacturer_cache[name] = man_id
+            return man_id
+        man_id = self._find_exact("/manufacturers", name, case_insensitive=True)
+        if man_id:
             self._manufacturer_cache[name] = man_id
             return man_id
         log.warning("Could not create manufacturer '%s': %s", name, resp)
         return None
 
     def get_or_create_model(
-        self, model_number: str, manufacturer_id: int | None, category_id: int | None
+        self,
+        model_number: str,
+        manufacturer_id: int | None,
+        category_id: int | None,
+        *,
+        dry_run: bool = False,
     ) -> int | None:
         if not model_number:
             return None
@@ -279,10 +309,15 @@ class SnipeITClient:
             return self._model_cache[model_number]
         # Check by model_number field for exact match
         data = self._get("/models", params={"search": model_number})
+        model_cf = model_number.casefold()
         for row in data.get("rows", []):
-            if row.get("model_number") == model_number or row.get("name") == model_number:
+            mn = row.get("model_number") or ""
+            nm = row.get("name") or ""
+            if mn.casefold() == model_cf or nm.casefold() == model_cf:
                 self._model_cache[model_number] = row["id"]
                 return row["id"]
+        if dry_run:
+            return None
         resp = self._post("/models", {
             "name": model_number,
             "model_number": model_number,
@@ -512,11 +547,18 @@ def sync_device(
 
     man_name = device.get("manufacturer")
     mod_number = device.get("model")
-    man_id = snipe.get_or_create_manufacturer(man_name)
-    mod_id = snipe.get_or_create_model(mod_number, man_id, category_id) if man_id else None
+    man_id = snipe.get_or_create_manufacturer(man_name, dry_run=dry_run)
+    mod_id = snipe.get_or_create_model(mod_number, man_id, category_id, dry_run=dry_run)
 
     if mod_id is None:
-        log.warning("Skipping '%s': could not resolve model_id", device_name)
+        if not mod_number:
+            log.warning("Skipping '%s': no model in Intune payload", device_name)
+        else:
+            log.warning(
+                "Skipping '%s': could not resolve model_id for '%s'",
+                device_name,
+                mod_number,
+            )
         return SyncOutcome.SKIPPED_NO_MODEL
 
     existing = snipe.find_asset_by_serial(serial)
@@ -617,7 +659,7 @@ def main() -> None:
         filter_info += f" and {len(group_ids)} group(s)"
     log.info("Found %d Intune devices matching %s", len(devices), filter_info)
 
-    category_id = snipe.get_or_create_category("Intune")
+    category_id = snipe.get_or_create_category("Intune", dry_run=args.dry_run)
     status_id = snipe.get_status_id(
         os.getenv("SNIPEIT_DEFAULT_STATUS", "Ready to Deploy")
     )

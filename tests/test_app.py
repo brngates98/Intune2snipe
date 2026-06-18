@@ -91,6 +91,43 @@ class TestFindAssetBySerial:
             assert c._session.get.call_args[1].get("params") is None
 
 
+class TestSnipeTaxonomyLookup:
+    def test_manufacturer_case_insensitive_match(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient()
+            c._session = MagicMock()
+            c._session.get.return_value.json.return_value = {
+                "rows": [{"id": 5, "name": "Lenovo"}]
+            }
+            c._session.get.return_value.raise_for_status = MagicMock()
+            assert c.get_or_create_manufacturer("LENOVO") == 5
+            c._session.post.assert_not_called()
+
+    def test_dry_run_skips_taxonomy_writes(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient()
+            c._session = MagicMock()
+            c._session.get.return_value.json.return_value = {"rows": []}
+            c._session.get.return_value.raise_for_status = MagicMock()
+            assert c.get_or_create_manufacturer("Dell", dry_run=True) is None
+            assert c.get_or_create_model("XPS", 1, 2, dry_run=True) is None
+            c._session.post.assert_not_called()
+
+
 class TestSnipeGetUserId:
     def test_email_exact_match(self) -> None:
         with patch.dict(

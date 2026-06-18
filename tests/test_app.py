@@ -14,16 +14,21 @@ from app import (
     SyncConfig,
     SyncOutcome,
     _assigned_user_id,
+    _autopilot_pending,
     _build_asset_payload,
+    _device_in_retire_state,
     _device_user_upn,
+    _enrich_device_autopilot,
     _format_summary,
     _managed_devices_url,
     _parse_group_ids,
     _parse_graph_datetime,
+    _platform_includes_windows,
     _upn_location_prefix,
     fetch_group_device_ids,
     fetch_managed_devices,
     normalize_upn,
+    reconcile_missing_devices,
     sync_device,
 )
 
@@ -231,6 +236,25 @@ class TestBuildAssetPayload:
         assert payload["byod"] == 1
         assert "OS 11" in payload["notes"]
 
+    def test_update_includes_status_id(self) -> None:
+        config = _test_config()
+        payload = _build_asset_payload(
+            {"osVersion": "11"},
+            device_name="pc",
+            serial="SN1",
+            man_id=1,
+            mod_id=2,
+            status_id=99,
+            config=config,
+            man_name="Dell",
+            mod_number="XPS",
+            checkout_mode="user",
+            checkout_target_id=None,
+            for_create=False,
+        )
+        assert payload["status_id"] == 99
+        assert payload["manufacturer_id"] == 1
+
 
 class TestSnipeLocationCheckout:
     def test_upn_location_prefix(self) -> None:
@@ -257,7 +281,7 @@ class TestSnipeLocationCheckout:
 
     def test_create_checks_out_to_location_on_create(self) -> None:
         snipe = MagicMock()
-        snipe.find_asset_by_serial.return_value = None
+        snipe.ensure_asset_for_sync.return_value = None
         snipe.get_or_create_manufacturer.return_value = 1
         snipe.get_or_create_model.return_value = 2
         snipe.get_location_id.return_value = 9
@@ -297,11 +321,11 @@ class TestSyncDeviceOutcomes:
             )
             == SyncOutcome.SKIPPED_NO_SERIAL
         )
-        snipe.find_asset_by_serial.assert_not_called()
+        snipe.ensure_asset_for_sync.assert_not_called()
 
     def test_dry_run_create(self) -> None:
         snipe = MagicMock()
-        snipe.find_asset_by_serial.return_value = None
+        snipe.ensure_asset_for_sync.return_value = None
         snipe.get_or_create_manufacturer.return_value = 1
         snipe.get_or_create_model.return_value = 2
         snipe.get_user_id.return_value = None
@@ -325,7 +349,7 @@ class TestSyncDeviceOutcomes:
 
     def test_update_rechecks_out_when_user_changes(self) -> None:
         snipe = MagicMock()
-        snipe.find_asset_by_serial.return_value = {
+        snipe.ensure_asset_for_sync.return_value = {
             "id": 10,
             "assigned_to": {"id": 1, "name": "old@domain.com"},
         }
@@ -356,7 +380,7 @@ class TestSyncDeviceOutcomes:
 
     def test_update_skips_checkout_when_user_unchanged(self) -> None:
         snipe = MagicMock()
-        snipe.find_asset_by_serial.return_value = {
+        snipe.ensure_asset_for_sync.return_value = {
             "id": 10,
             "assigned_to": {"id": 2, "name": "user@domain.com"},
         }
@@ -386,7 +410,7 @@ class TestSyncDeviceOutcomes:
 
     def test_update_checks_in_when_primary_user_cleared(self) -> None:
         snipe = MagicMock()
-        snipe.find_asset_by_serial.return_value = {
+        snipe.ensure_asset_for_sync.return_value = {
             "id": 10,
             "assigned_to": {"id": 1, "name": "old@domain.com"},
         }
@@ -415,6 +439,168 @@ class TestSyncDeviceOutcomes:
         )
         snipe.checkin_asset.assert_called_once_with(10)
         snipe.checkout_asset.assert_not_called()
+
+
+class TestLifecycle:
+    def test_retire_state_detection(self) -> None:
+        assert _device_in_retire_state({"managementState": "wipePending"})
+        assert not _device_in_retire_state({"managementState": "managed"})
+
+    def test_autopilot_pending_states(self) -> None:
+        assert _autopilot_pending({"enrollmentState": "pendingReset"})
+        assert not _autopilot_pending({"enrollmentState": "enrolled"})
+
+    def test_enrich_device_autopilot(self) -> None:
+        dev: dict = {}
+        _enrich_device_autopilot(
+            dev, {"enrollmentState": "enrolled", "lastContactedDateTime": "2024-01-01"}
+        )
+        assert dev["_autopilot_enrollmentState"] == "enrolled"
+
+    def test_platform_includes_windows(self) -> None:
+        assert _platform_includes_windows("windows")
+        assert _platform_includes_windows("all")
+        assert not _platform_includes_windows("ios")
+
+    def test_retiring_device_lifecycle(self) -> None:
+        snipe = MagicMock()
+        snipe.ensure_asset_for_sync.return_value = {
+            "id": 10,
+            "assigned_to": {"id": 1},
+        }
+        snipe.checkin_asset.return_value = True
+        snipe.apply_lifecycle_update.return_value = True
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "managementState": "wipePending",
+            "manufacturer": "Dell",
+            "model": "XPS",
+        }
+        config = _test_config()
+        outcome = sync_device(
+            snipe,
+            dev,
+            category_id=1,
+            default_status_id=2,
+            config=config,
+            status_ids={"pending_retire": 55},
+            dry_run=False,
+        )
+        assert outcome == SyncOutcome.LIFECYCLE_PENDING_RETIRE
+        snipe.checkin_asset.assert_called_once_with(10)
+        snipe.apply_lifecycle_update.assert_called_once()
+        assert snipe.get_or_create_model.call_count == 0
+
+    def test_reconcile_archived_when_missing_from_intune(self) -> None:
+        snipe = MagicMock()
+        snipe.ensure_asset_for_sync.return_value = {"id": 20, "assigned_to": {"id": 3}}
+        snipe.checkin_asset.return_value = True
+        snipe.apply_lifecycle_update.return_value = True
+        config = _test_config(
+            sync_state_file="/tmp/state.json",
+            lifecycle_reconciliation=True,
+        )
+        previous = {
+            "SN9": {
+                "platform": "ios",
+                "device_name": "phone",
+                "last_sync": "2024-01-01",
+            }
+        }
+        counts = reconcile_missing_devices(
+            snipe,
+            config,
+            previous,
+            current_intune_serials=set(),
+            autopilot_by_serial={},
+            platform="all",
+            default_status_id=2,
+            status_ids={"archived": 88, "pending_autopilot": 77},
+            dry_run=False,
+        )
+        assert counts[SyncOutcome.LIFECYCLE_ARCHIVED] == 1
+        snipe.apply_lifecycle_update.assert_called_once()
+        call_kw = snipe.apply_lifecycle_update.call_args[1]
+        assert call_kw["archived"] is True
+        assert call_kw["status_id"] == 88
+
+    def test_reconcile_pending_autopilot_for_windows(self) -> None:
+        snipe = MagicMock()
+        snipe.ensure_asset_for_sync.return_value = {"id": 21}
+        snipe.checkin_asset.return_value = True
+        snipe.apply_lifecycle_update.return_value = True
+        config = _test_config(
+            sync_state_file="/tmp/state.json",
+            lifecycle_reconciliation=True,
+        )
+        previous = {"SNW": {"platform": "windows", "device_name": "laptop"}}
+        autopilot = {"snw": {"enrollmentState": "pendingReset", "serialNumber": "SNW"}}
+        counts = reconcile_missing_devices(
+            snipe,
+            config,
+            previous,
+            current_intune_serials=set(),
+            autopilot_by_serial=autopilot,
+            platform="windows",
+            default_status_id=2,
+            status_ids={"archived": 88, "pending_autopilot": 77},
+            dry_run=False,
+        )
+        assert counts[SyncOutcome.LIFECYCLE_PENDING_AUTOPILOT] == 1
+        assert snipe.apply_lifecycle_update.call_args[1]["status_id"] == 77
+        assert snipe.apply_lifecycle_update.call_args[1]["archived"] is False
+
+
+class TestSnipeRestore:
+    def test_ensure_asset_restores_deleted(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient(_test_config(restore_deleted_assets=True))
+            c._session = MagicMock()
+            deleted = {"id": 5, "serial": "SN1", "deleted_at": "2024-01-01"}
+            active = {"id": 5, "serial": "SN1"}
+            c._session.get.return_value.raise_for_status = MagicMock()
+            c._session.get.return_value.json.side_effect = [
+                {"rows": [deleted]},
+                {"rows": [active]},
+            ]
+            c._session.post.return_value.json.return_value = {"status": "success"}
+            c._session.post.return_value.raise_for_status = MagicMock()
+            asset = c.ensure_asset_for_sync("SN1", config=_test_config())
+            assert asset == active
+            c._session.post.assert_called_once()
+            assert "/hardware/5/restore" in c._session.post.call_args[0][0]
+
+
+class TestGraphAutopilot:
+    def test_fetch_autopilot_by_serial(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+            },
+            clear=False,
+        ):
+            gc = GraphClient()
+            gc._token = "tok"
+            gc._token_expires_at = __import__("time").time() + 3600
+            gc.get_paginated = MagicMock(
+                return_value=[
+                    {"serialNumber": "ABC123", "enrollmentState": "enrolled"},
+                    {"serialNumber": "", "enrollmentState": "failed"},
+                ]
+            )
+            result = gc.fetch_autopilot_by_serial()
+            assert result == {"abc123": {"serialNumber": "ABC123", "enrollmentState": "enrolled"}}
 
 
 class TestAssignedUserId:

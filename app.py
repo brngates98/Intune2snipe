@@ -12,6 +12,10 @@ API references (validate behavior against current docs):
   https://learn.microsoft.com/en-us/graph/api/group-list-members
 - Microsoft Graph — JSON batching:
   https://learn.microsoft.com/en-us/graph/json-batching
+- Microsoft Graph — List windowsAutopilotDeviceIdentities:
+  https://learn.microsoft.com/en-us/graph/api/intune-enrollment-windowsautopilotdeviceidentity-list
+- Snipe-IT REST API — Restore hardware:
+  https://snipe-it.readme.io/reference/hardwareidrestore
 - Snipe-IT REST API — Users index (email / username query params):
   https://snipe-it.readme.io/reference/users
 - Snipe-IT REST API — Hardware checkout (user / location):
@@ -75,14 +79,27 @@ PLATFORM_ODATA_FILTERS: dict[str, str] = {
     "macos": "operatingSystem eq 'macOS'",
 }
 
-EXCLUDED_MANAGEMENT_STATES = frozenset({
+RETIRING_MANAGEMENT_STATES = frozenset({
     "retirePending",
     "retireIssued",
+    "retireFailed",
     "wipePending",
     "wipeIssued",
+    "wipeFailed",
     "deletePending",
     "deleteIssued",
 })
+
+AUTOPILOT_PENDING_ENROLLMENT_STATES = frozenset({
+    "pendingReset",
+    "notContacted",
+    "failed",
+    "blocked",
+})
+
+AUTOPILOT_URL = (
+    "https://graph.microsoft.com/v1.0/deviceManagement/windowsAutopilotDeviceIdentities"
+)
 
 # Intune managedDevice property -> env var holding Snipe custom-field DB column name
 BUILTIN_CUSTOM_FIELD_ENV: dict[str, str] = {
@@ -94,6 +111,11 @@ BUILTIN_CUSTOM_FIELD_ENV: dict[str, str] = {
     "meid": "SNIPEIT_CF_MEID",
     "wiFiMacAddress": "SNIPEIT_CF_WIFI_MAC",
     "complianceState": "SNIPEIT_CF_COMPLIANCE_STATE",
+}
+
+AUTOPILOT_CUSTOM_FIELD_ENV: dict[str, str] = {
+    "enrollmentState": "SNIPEIT_CF_AUTOPILOT_ENROLLMENT_STATE",
+    "lastContactedDateTime": "SNIPEIT_CF_AUTOPILOT_LAST_CONTACTED",
 }
 
 
@@ -173,6 +195,12 @@ class SyncConfig:
     default_status_name: str = "Ready to Deploy"
     checkout_status_name: str | None = None
     checkin_status_name: str | None = None
+    skip_autopilot: bool = False
+    restore_deleted_assets: bool = True
+    lifecycle_reconciliation: bool = True
+    status_pending_autopilot: str = "Pending Autopilot"
+    status_pending_retire: str = "Pending Retire"
+    status_archived: str = "Archived"
 
     @classmethod
     def from_env(cls, *, use_primary_user_cli: bool | None = None) -> SyncConfig:
@@ -200,6 +228,20 @@ class SyncConfig:
             default_status_name=os.getenv("SNIPEIT_DEFAULT_STATUS", "Ready to Deploy"),
             checkout_status_name=checkout_status,
             checkin_status_name=checkin_status,
+            skip_autopilot=_parse_bool_env("SNIPEIT_SKIP_AUTOPILOT", False),
+            restore_deleted_assets=not _parse_bool_env(
+                "SNIPEIT_SKIP_RESTORE_DELETED", False
+            ),
+            lifecycle_reconciliation=not _parse_bool_env(
+                "SNIPEIT_SKIP_LIFECYCLE_RECONCILIATION", False
+            ),
+            status_pending_autopilot=os.getenv(
+                "SNIPEIT_STATUS_PENDING_AUTOPILOT", "Pending Autopilot"
+            ).strip(),
+            status_pending_retire=os.getenv(
+                "SNIPEIT_STATUS_PENDING_RETIRE", "Pending Retire"
+            ).strip(),
+            status_archived=os.getenv("SNIPEIT_STATUS_ARCHIVED", "Archived").strip(),
         )
 
 
@@ -211,6 +253,10 @@ def _build_custom_field_map() -> dict[str, str]:
         if col:
             mapping[intune_key] = col
     mapping.update(_parse_json_env("SNIPEIT_CUSTOM_FIELDS"))
+    for ap_key, env_name in AUTOPILOT_CUSTOM_FIELD_ENV.items():
+        col = os.getenv(env_name, "").strip()
+        if col:
+            mapping[f"_autopilot_{ap_key}"] = col
     return mapping
 
 
@@ -343,6 +389,29 @@ class GraphClient:
             len(managed_device_ids),
         )
         return upn_by_device
+
+    def fetch_autopilot_by_serial(self) -> dict[str, dict]:
+        """Index Windows Autopilot identities by serial number (lowercase key)."""
+        by_serial: dict[str, dict] = {}
+        try:
+            records = self.get_paginated(AUTOPILOT_URL)
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 403:
+                log.warning(
+                    "403 Forbidden listing Autopilot devices: grant "
+                    "DeviceManagementServiceConfig.Read.All (see Graph: "
+                    "List windowsAutopilotDeviceIdentities)."
+                )
+            else:
+                log.warning("Failed to fetch Autopilot devices: %s", exc)
+            return by_serial
+        for record in records:
+            serial = (record.get("serialNumber") or "").strip()
+            if not serial:
+                continue
+            by_serial[serial.casefold()] = record
+        log.info("Loaded %d Windows Autopilot device(s) by serial", len(by_serial))
+        return by_serial
 
 
 class SnipeITClient:
@@ -652,17 +721,66 @@ class SnipeITClient:
             if include_deleted:
                 return None
             raise
-        rows = data.get("rows")
-        if rows:
-            return rows[0]
-        if data.get("id"):
-            return data
-        payload = data.get("payload")
-        if isinstance(payload, dict) and payload.get("id"):
-            return payload
+        asset = _extract_asset_row(data)
+        if asset:
+            return asset
         if include_deleted:
             return None
         return self.find_asset_by_serial(serial, include_deleted=True)
+
+    def ensure_asset_for_sync(
+        self, serial: str, *, config: SyncConfig
+    ) -> dict | None:
+        """Find asset by serial; optionally restore soft-deleted rows before sync."""
+        include_deleted = (
+            config.include_deleted_assets or config.restore_deleted_assets
+        )
+        asset = self.find_asset_by_serial(serial, include_deleted=include_deleted)
+        if not asset:
+            return None
+        if config.restore_deleted_assets and _asset_is_deleted(asset):
+            asset_id = asset.get("id")
+            if asset_id is None:
+                return asset
+            if self.restore_asset(int(asset_id)):
+                restored = self.find_asset_by_serial(serial, include_deleted=False)
+                return restored or asset
+        return asset
+
+    def restore_asset(self, asset_id: int) -> bool:
+        try:
+            resp = self._post(f"/hardware/{asset_id}/restore", {})
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.error("Restore failed for asset %d: %s", asset_id, exc)
+            return False
+        if resp.get("status") == "success":
+            log.info("Restored soft-deleted asset %d", asset_id)
+            return True
+        log.error("Restore failed for asset %d: %s", asset_id, resp)
+        return False
+
+    def apply_lifecycle_update(
+        self,
+        asset_id: int,
+        *,
+        status_id: int | None,
+        notes: str,
+        archived: bool = False,
+    ) -> bool:
+        payload: dict[str, Any] = {"notes": notes}
+        if status_id is not None:
+            payload["status_id"] = status_id
+        if archived:
+            payload["archived"] = 1
+        try:
+            data = self._patch(f"/hardware/{asset_id}", payload)
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.error("Lifecycle update failed for asset %d: %s", asset_id, exc)
+            return False
+        if data.get("status") == "success":
+            return True
+        log.error("Lifecycle update failed for asset %d: %s", asset_id, data)
+        return False
 
     def create_asset(self, payload: dict) -> dict | None:
         try:
@@ -750,6 +868,74 @@ class SnipeITClient:
 # ─── SYNC LOGIC ───────────────────────────────────────────────────────────────
 
 
+def _extract_asset_row(data: dict) -> dict | None:
+    rows = data.get("rows")
+    if rows:
+        return rows[0]
+    if data.get("id"):
+        return data
+    payload = data.get("payload")
+    if isinstance(payload, dict) and payload.get("id"):
+        return payload
+    return None
+
+
+def _asset_is_deleted(asset: dict) -> bool:
+    if asset.get("deleted_at"):
+        return True
+    deleted = asset.get("deleted")
+    if deleted in (True, 1, "1"):
+        return True
+    return False
+
+
+def _platform_includes_windows(platform: str) -> bool:
+    return platform in {"windows", "all"}
+
+
+def _is_windows_device(device: dict) -> bool:
+    os_val = (device.get("operatingSystem") or "").lower()
+    return os_val.startswith("windows")
+
+
+def _device_platform_key(device: dict) -> str:
+    os_val = (device.get("operatingSystem") or "").lower()
+    if os_val.startswith("windows"):
+        return "windows"
+    if "android" in os_val:
+        return "android"
+    if "ios" in os_val:
+        return "ios"
+    if "mac" in os_val:
+        return "macos"
+    return "other"
+
+
+def _state_entry_in_scope(entry: dict, platform: str) -> bool:
+    if platform == "all":
+        return True
+    entry_platform = (entry.get("platform") or "").casefold()
+    if not entry_platform:
+        return platform == "windows"
+    return entry_platform == platform.casefold()
+
+
+def _enrich_device_autopilot(device: dict, autopilot: dict | None) -> None:
+    if not autopilot:
+        return
+    for key in ("enrollmentState", "lastContactedDateTime", "managedDeviceId"):
+        val = autopilot.get(key)
+        if val is not None and val != "":
+            device[f"_autopilot_{key}"] = val
+
+
+def _autopilot_pending(ap_record: dict | None) -> bool:
+    if not ap_record:
+        return False
+    state = (ap_record.get("enrollmentState") or "").casefold()
+    return state in {s.casefold() for s in AUTOPILOT_PENDING_ENROLLMENT_STATES}
+
+
 def normalize_upn(upn_raw: str | None) -> str | None:
     if not upn_raw:
         return None
@@ -809,9 +995,9 @@ def _device_user_upn(
     return normalize_upn(device.get("emailAddress"))
 
 
-def _device_excluded(device: dict) -> bool:
+def _device_in_retire_state(device: dict) -> bool:
     state = device.get("managementState")
-    return bool(state and state in EXCLUDED_MANAGEMENT_STATES)
+    return bool(state and state in RETIRING_MANAGEMENT_STATES)
 
 
 def _device_is_stale(device: dict, stale_days: int) -> bool:
@@ -843,13 +1029,23 @@ def _resolve_status_id(
 def _custom_field_payload(device: dict, config: SyncConfig) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     for intune_key, snipe_col in config.custom_fields.items():
-        value = device.get(intune_key)
+        if intune_key.startswith("_autopilot_"):
+            value = device.get(intune_key)
+        else:
+            value = device.get(intune_key)
         if value is not None and value != "":
             payload[snipe_col] = value
     return payload
 
 
-def _asset_notes(device: dict, man_name: str | None, mod_number: str | None) -> str:
+def _asset_notes(
+    device: dict,
+    man_name: str | None,
+    mod_number: str | None,
+    *,
+    autopilot: dict | None = None,
+    extra: str | None = None,
+) -> str:
     parts = [f"Intune: {man_name or '?'} {mod_number or '?'}"]
     os_version = device.get("osVersion")
     if os_version:
@@ -857,6 +1053,18 @@ def _asset_notes(device: dict, man_name: str | None, mod_number: str | None) -> 
     last_sync = device.get("lastSyncDateTime")
     if last_sync:
         parts.append(f"last sync {last_sync}")
+    mgmt = device.get("managementState")
+    if mgmt:
+        parts.append(f"managementState {mgmt}")
+    if autopilot:
+        ap_state = autopilot.get("enrollmentState")
+        if ap_state:
+            parts.append(f"Autopilot {ap_state}")
+        ap_last = autopilot.get("lastContactedDateTime")
+        if ap_last:
+            parts.append(f"autopilot contacted {ap_last}")
+    if extra:
+        parts.append(extra)
     return " | ".join(parts)
 
 
@@ -874,11 +1082,12 @@ def _build_asset_payload(
     checkout_mode: str,
     checkout_target_id: int | None,
     for_create: bool,
+    autopilot: dict | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "name": device_name,
         "model_id": mod_id,
-        "notes": _asset_notes(device, man_name, mod_number),
+        "notes": _asset_notes(device, man_name, mod_number, autopilot=autopilot),
     }
     if for_create:
         payload["serial"] = serial
@@ -887,6 +1096,9 @@ def _build_asset_payload(
             payload["manufacturer_id"] = man_id
     else:
         payload["serial"] = serial
+        payload["status_id"] = status_id
+        if man_id is not None:
+            payload["manufacturer_id"] = man_id
 
     if config.company_id is not None:
         payload["company_id"] = config.company_id
@@ -1002,13 +1214,6 @@ def fetch_managed_devices(
     for dev in all_devices:
         if not _platform_matches_client(dev, platform):
             continue
-        if _device_excluded(dev):
-            log.debug(
-                "Skipping '%s': managementState=%s",
-                dev.get("deviceName"),
-                dev.get("managementState"),
-            )
-            continue
         if azure_ad_device_ids is not None:
             device_id = dev.get("azureADDeviceId") or dev.get("azureActiveDeviceId")
             if device_id not in azure_ad_device_ids:
@@ -1021,9 +1226,9 @@ class SyncOutcome(str, Enum):
     SKIPPED_NO_SERIAL = "skipped_no_serial"
     SKIPPED_NO_MODEL = "skipped_no_model"
     SKIPPED_STALE = "skipped_stale"
-    SKIPPED_EXCLUDED = "skipped_excluded"
     DRY_RUN_UPDATE = "dry_run_update"
     DRY_RUN_CREATE = "dry_run_create"
+    DRY_RUN_LIFECYCLE = "dry_run_lifecycle"
     UPDATED = "updated"
     UPDATE_FAILED = "update_failed"
     CREATED = "created"
@@ -1031,6 +1236,10 @@ class SyncOutcome(str, Enum):
     CREATED_CHECKOUT_FAILED = "created_checkout_failed"
     UPDATED_CHECKOUT_FAILED = "updated_checkout_failed"
     CHECKED_IN_STALE = "checked_in_stale"
+    LIFECYCLE_PENDING_RETIRE = "lifecycle_pending_retire"
+    LIFECYCLE_PENDING_AUTOPILOT = "lifecycle_pending_autopilot"
+    LIFECYCLE_ARCHIVED = "lifecycle_archived"
+    LIFECYCLE_FAILED = "lifecycle_failed"
 
 
 def _assigned_user_id(asset: dict | None) -> int | None:
@@ -1122,6 +1331,186 @@ def _apply_checkout_if_needed(
     return ok
 
 
+def _checkin_if_assigned(
+    snipe: SnipeITClient,
+    asset: dict,
+    checkout_mode: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    asset_id = asset.get("id")
+    if asset_id is None:
+        return True
+    if _assigned_target_id(asset, checkout_mode) is None:
+        return True
+    if dry_run:
+        log.info("[DRY RUN] Would check in asset %d (lifecycle)", asset_id)
+        return True
+    return snipe.checkin_asset(int(asset_id))
+
+
+def _apply_lifecycle_to_asset(
+    snipe: SnipeITClient,
+    asset: dict,
+    *,
+    status_id: int | None,
+    notes: str,
+    archived: bool,
+    checkout_mode: str,
+    dry_run: bool,
+) -> bool:
+    asset_id = asset.get("id")
+    if asset_id is None:
+        return False
+    if not _checkin_if_assigned(snipe, asset, checkout_mode, dry_run=dry_run):
+        return False
+    if dry_run:
+        log.info(
+            "[DRY RUN] Would set lifecycle on asset %d (archived=%s)",
+            asset_id,
+            archived,
+        )
+        return True
+    return snipe.apply_lifecycle_update(
+        int(asset_id),
+        status_id=status_id,
+        notes=notes,
+        archived=archived,
+    )
+
+
+def _sync_device_retiring(
+    snipe: SnipeITClient,
+    device: dict,
+    config: SyncConfig,
+    *,
+    default_status_id: int,
+    status_ids: dict[str, int | None],
+    autopilot: dict | None,
+    dry_run: bool,
+) -> SyncOutcome:
+    device_name = device.get("deviceName", "unknown")
+    serial = device.get("serialNumber")
+    if not serial:
+        return SyncOutcome.SKIPPED_NO_SERIAL
+
+    existing = snipe.ensure_asset_for_sync(serial, config=config)
+    if not existing:
+        log.info(
+            "Retiring device '%s' has no Snipe asset (serial %s); nothing to update",
+            device_name,
+            serial,
+        )
+        return SyncOutcome.LIFECYCLE_PENDING_RETIRE
+
+    status_id = status_ids.get("pending_retire") or default_status_id
+    notes = _asset_notes(
+        device,
+        device.get("manufacturer"),
+        device.get("model"),
+        autopilot=autopilot,
+        extra=f"lifecycle: Intune {device.get('managementState')}",
+    )
+    ok = _apply_lifecycle_to_asset(
+        snipe,
+        existing,
+        status_id=status_id,
+        notes=notes,
+        archived=False,
+        checkout_mode=config.checkout_mode,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return SyncOutcome.DRY_RUN_LIFECYCLE
+    return (
+        SyncOutcome.LIFECYCLE_PENDING_RETIRE
+        if ok
+        else SyncOutcome.LIFECYCLE_FAILED
+    )
+
+
+def reconcile_missing_devices(
+    snipe: SnipeITClient,
+    config: SyncConfig,
+    previous_state: dict[str, Any],
+    current_intune_serials: set[str],
+    autopilot_by_serial: dict[str, dict],
+    *,
+    platform: str,
+    default_status_id: int,
+    status_ids: dict[str, int | None],
+    dry_run: bool,
+) -> dict[SyncOutcome, int]:
+    counts: dict[SyncOutcome, int] = {o: 0 for o in SyncOutcome}
+    if not config.lifecycle_reconciliation or not config.sync_state_file:
+        return counts
+
+    for serial, entry in previous_state.items():
+        if not isinstance(entry, dict):
+            continue
+        if serial in current_intune_serials:
+            continue
+        if not _state_entry_in_scope(entry, platform):
+            continue
+
+        ap_record = autopilot_by_serial.get(serial.casefold())
+        is_windows = (entry.get("platform") or "").casefold() == "windows"
+        if is_windows and _autopilot_pending(ap_record):
+            outcome = SyncOutcome.LIFECYCLE_PENDING_AUTOPILOT
+            status_id = status_ids.get("pending_autopilot")
+            notes_extra = "lifecycle: absent from Intune; Autopilot pending re-deploy"
+            archived = False
+        else:
+            outcome = SyncOutcome.LIFECYCLE_ARCHIVED
+            status_id = status_ids.get("archived")
+            notes_extra = "lifecycle: removed from Intune"
+            archived = True
+
+        existing = snipe.ensure_asset_for_sync(serial, config=config)
+        if not existing:
+            log.debug(
+                "No Snipe asset for missing Intune serial %s; skipping reconciliation",
+                serial,
+            )
+            continue
+
+        pseudo_device = {
+            "deviceName": entry.get("device_name") or serial,
+            "lastSyncDateTime": entry.get("last_sync"),
+            "managementState": entry.get("management_state"),
+        }
+        notes = _asset_notes(
+            pseudo_device,
+            entry.get("manufacturer"),
+            entry.get("model"),
+            autopilot=ap_record if is_windows else None,
+            extra=notes_extra,
+        )
+        ok = _apply_lifecycle_to_asset(
+            snipe,
+            existing,
+            status_id=status_id or default_status_id,
+            notes=notes,
+            archived=archived,
+            checkout_mode=config.checkout_mode,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            counts[SyncOutcome.DRY_RUN_LIFECYCLE] += 1
+        elif ok:
+            counts[outcome] += 1
+            log.info(
+                "Lifecycle %s for asset %d (serial %s)",
+                outcome.value,
+                existing["id"],
+                serial,
+            )
+        else:
+            counts[SyncOutcome.LIFECYCLE_FAILED] += 1
+
+    return counts
+
+
 def sync_device(
     snipe: SnipeITClient,
     device: dict,
@@ -1131,17 +1520,27 @@ def sync_device(
     *,
     dry_run: bool = False,
     primary_upns: dict[str, str] | None = None,
+    autopilot: dict | None = None,
+    status_ids: dict[str, int | None] | None = None,
 ) -> SyncOutcome:
     """Sync a single Intune device to Snipe-IT. Creates or updates as needed."""
+    status_ids = status_ids or {}
     device_name = device.get("deviceName", "unknown")
     serial = device.get("serialNumber")
     if not serial:
         log.warning("Skipping '%s': no serial number", device_name)
         return SyncOutcome.SKIPPED_NO_SERIAL
 
-    if _device_excluded(device):
-        log.info("Skipping '%s': excluded managementState=%s", device_name, device.get("managementState"))
-        return SyncOutcome.SKIPPED_EXCLUDED
+    if _device_in_retire_state(device):
+        return _sync_device_retiring(
+            snipe,
+            device,
+            config,
+            default_status_id=default_status_id,
+            status_ids=status_ids,
+            autopilot=autopilot,
+            dry_run=dry_run,
+        )
 
     primary_upns = primary_upns or {}
     upn = _device_user_upn(device, primary_upns, config)
@@ -1154,9 +1553,7 @@ def sync_device(
     )
 
     if config.stale_days and _device_is_stale(device, config.stale_days):
-        existing = snipe.find_asset_by_serial(
-            serial, include_deleted=config.include_deleted_assets
-        )
+        existing = snipe.ensure_asset_for_sync(serial, config=config)
         if existing:
             asset_id = existing["id"]
             if dry_run:
@@ -1187,9 +1584,7 @@ def sync_device(
         return SyncOutcome.SKIPPED_NO_MODEL
 
     status_id = _resolve_status_id(snipe, device, default_status_id, config)
-    existing = snipe.find_asset_by_serial(
-        serial, include_deleted=config.include_deleted_assets
-    )
+    existing = snipe.ensure_asset_for_sync(serial, config=config)
 
     checkout_on_create = (
         config.checkout_on_create
@@ -1211,7 +1606,10 @@ def sync_device(
             checkout_mode=checkout_mode,
             checkout_target_id=None,
             for_create=False,
+            autopilot=autopilot,
         )
+        if existing.get("archived") in (True, 1, "1"):
+            update_payload["archived"] = 0
         if dry_run:
             log.info("[DRY RUN] Would update existing asset %d (%s)", asset_id, device_name)
             if not _apply_checkout_if_needed(
@@ -1241,6 +1639,7 @@ def sync_device(
         checkout_mode=checkout_mode,
         checkout_target_id=checkout_target_id if checkout_on_create else None,
         for_create=True,
+        autopilot=autopilot,
     )
 
     if dry_run:
@@ -1280,12 +1679,16 @@ def _format_summary(counts: dict[SyncOutcome, int], dry_run: bool) -> str:
         (SyncOutcome.CREATED_CHECKOUT_FAILED, "created (checkout failed)"),
         (SyncOutcome.UPDATED_CHECKOUT_FAILED, "updated (checkout failed)"),
         (SyncOutcome.CHECKED_IN_STALE, "checked in (stale)"),
+        (SyncOutcome.LIFECYCLE_PENDING_RETIRE, "lifecycle pending retire"),
+        (SyncOutcome.LIFECYCLE_PENDING_AUTOPILOT, "lifecycle pending autopilot"),
+        (SyncOutcome.LIFECYCLE_ARCHIVED, "lifecycle archived"),
+        (SyncOutcome.LIFECYCLE_FAILED, "lifecycle failed"),
         (SyncOutcome.SKIPPED_NO_SERIAL, "skipped (no serial)"),
         (SyncOutcome.SKIPPED_NO_MODEL, "skipped (no model)"),
         (SyncOutcome.SKIPPED_STALE, "skipped (stale)"),
-        (SyncOutcome.SKIPPED_EXCLUDED, "skipped (excluded state)"),
         (SyncOutcome.DRY_RUN_CREATE, "would create"),
         (SyncOutcome.DRY_RUN_UPDATE, "would update"),
+        (SyncOutcome.DRY_RUN_LIFECYCLE, "would lifecycle update"),
     ):
         n = counts.get(key, 0)
         if n:
@@ -1323,6 +1726,10 @@ def main() -> None:
     graph = GraphClient()
     snipe = SnipeITClient(config)
 
+    autopilot_by_serial: dict[str, dict] = {}
+    if _platform_includes_windows(args.platform) and not config.skip_autopilot:
+        autopilot_by_serial = graph.fetch_autopilot_by_serial()
+
     devices = fetch_managed_devices(graph, args.platform, group_ids=group_ids)
     filter_info = f"platform '{args.platform}'"
     if group_ids:
@@ -1344,19 +1751,54 @@ def main() -> None:
         log.error("Checkout status label '%s' not found", config.checkout_status_name)
         sys.exit(1)
 
+    lifecycle_status_ids: dict[str, int | None] = {
+        "pending_retire": snipe.get_status_id(config.status_pending_retire),
+    }
+    if lifecycle_status_ids["pending_retire"] is None:
+        log.warning(
+            "Lifecycle status label '%s' not found; retiring devices use default status",
+            config.status_pending_retire,
+        )
+    if config.lifecycle_reconciliation and config.sync_state_file:
+        lifecycle_status_ids["pending_autopilot"] = snipe.get_status_id(
+            config.status_pending_autopilot
+        )
+        lifecycle_status_ids["archived"] = snipe.get_status_id(config.status_archived)
+        for label, sid in (
+            (config.status_pending_autopilot, lifecycle_status_ids["pending_autopilot"]),
+            (config.status_archived, lifecycle_status_ids["archived"]),
+        ):
+            if sid is None:
+                log.error(
+                    "Lifecycle status label '%s' not found in Snipe-IT "
+                    "(required when SYNC_STATE_FILE is set)",
+                    label,
+                )
+                sys.exit(1)
+
     log.info(
         "Using category_id=%s, default_status_id=%s, checkout_mode=%s, "
-        "primary_user=%s, custom_fields=%d",
+        "primary_user=%s, custom_fields=%d, autopilot=%d, lifecycle_reconcile=%s",
         category_id,
         default_status_id,
         config.checkout_mode,
         config.use_primary_user,
         len(config.custom_fields),
+        len(autopilot_by_serial),
+        config.lifecycle_reconciliation and bool(config.sync_state_file),
     )
 
-    sync_state = load_sync_state(config.sync_state_file)
+    previous_state = load_sync_state(config.sync_state_file)
+    sync_state: dict[str, Any] = {}
+    current_intune_serials: set[str] = set()
     counts: dict[SyncOutcome, int] = {o: 0 for o in SyncOutcome}
     for dev in devices:
+        ap_record: dict | None = None
+        if _is_windows_device(dev) and autopilot_by_serial:
+            serial_key = (dev.get("serialNumber") or "").casefold()
+            ap_record = autopilot_by_serial.get(serial_key)
+            _enrich_device_autopilot(dev, ap_record)
+
         outcome = sync_device(
             snipe,
             dev,
@@ -1365,16 +1807,39 @@ def main() -> None:
             config=config,
             dry_run=args.dry_run,
             primary_upns=primary_upns,
+            autopilot=ap_record,
+            status_ids=lifecycle_status_ids,
         )
         counts[outcome] += 1
         serial = dev.get("serialNumber")
         if serial and config.sync_state_file:
+            current_intune_serials.add(serial)
             sync_state[serial] = {
                 "intune_id": dev.get("id"),
+                "device_name": dev.get("deviceName"),
+                "platform": _device_platform_key(dev),
+                "manufacturer": dev.get("manufacturer"),
+                "model": dev.get("model"),
                 "last_sync": dev.get("lastSyncDateTime"),
+                "management_state": dev.get("managementState"),
                 "outcome": outcome.value,
                 "synced_at": datetime.now(tz=timezone.utc).isoformat(),
             }
+
+    if config.sync_state_file and config.lifecycle_reconciliation:
+        recon_counts = reconcile_missing_devices(
+            snipe,
+            config,
+            previous_state,
+            current_intune_serials,
+            autopilot_by_serial,
+            platform=args.platform,
+            default_status_id=default_status_id,
+            status_ids=lifecycle_status_ids,
+            dry_run=args.dry_run,
+        )
+        for outcome, n in recon_counts.items():
+            counts[outcome] += n
 
     save_sync_state(config.sync_state_file, sync_state)
     log.info("%s", _format_summary(counts, args.dry_run))

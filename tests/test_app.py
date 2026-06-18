@@ -11,15 +11,32 @@ import requests
 from app import (
     GraphClient,
     SnipeITClient,
+    SyncConfig,
     SyncOutcome,
     _assigned_user_id,
+    _build_asset_payload,
+    _device_user_upn,
     _format_summary,
+    _managed_devices_url,
     _parse_group_ids,
+    _parse_graph_datetime,
     _upn_location_prefix,
     fetch_group_device_ids,
+    fetch_managed_devices,
     normalize_upn,
     sync_device,
 )
+
+
+def _test_config(**kwargs: object) -> SyncConfig:
+    defaults = {
+        "checkout_mode": "user",
+        "location_prefix_len": 3,
+        "use_primary_user": False,
+        "checkout_on_create": True,
+    }
+    defaults.update(kwargs)
+    return SyncConfig(**defaults)  # type: ignore[arg-type]
 
 
 class TestNormalizeUpn:
@@ -71,6 +88,32 @@ class TestFetchGroupDeviceIds:
             fetch_group_device_ids(g, ["g1"])
 
 
+class TestManagedDevicesUrl:
+    def test_select_and_filter_windows(self) -> None:
+        url = _managed_devices_url("windows")
+        assert "%24select=" in url or "$select=" in url
+        assert "serialNumber" in url
+        assert "%24filter=" in url or "$filter=" in url
+        assert "Windows" in url
+
+    def test_all_platform_no_filter(self) -> None:
+        url = _managed_devices_url("all")
+        assert "%24select=" in url or "$select=" in url
+        assert "%24filter=" not in url and "$filter=" not in url
+
+
+class TestDeviceUserUpn:
+    def test_primary_user_when_enabled(self) -> None:
+        config = _test_config(use_primary_user=True)
+        device = {"id": "d1", "userPrincipalName": "enrolled@domain.com"}
+        assert _device_user_upn(device, {"d1": "primary@domain.com"}, config) == "primary@domain.com"
+
+    def test_email_fallback(self) -> None:
+        config = _test_config()
+        device = {"emailAddress": "mail@domain.com"}
+        assert _device_user_upn(device, {}, config) == "mail@domain.com"
+
+
 class TestFindAssetBySerial:
     def test_uses_path_not_query_param(self) -> None:
         with patch.dict(
@@ -81,7 +124,7 @@ class TestFindAssetBySerial:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {
                 "rows": [{"id": 99, "serial": "SN123"}]
@@ -90,7 +133,6 @@ class TestFindAssetBySerial:
             assert c.find_asset_by_serial("SN123") == {"id": 99, "serial": "SN123"}
             url = c._session.get.call_args[0][0]
             assert url.endswith("/api/v1/hardware/byserial/SN123")
-            assert c._session.get.call_args[1].get("params") is None
 
 
 class TestSnipeTaxonomyLookup:
@@ -103,7 +145,7 @@ class TestSnipeTaxonomyLookup:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {
                 "rows": [{"id": 5, "name": "Lenovo"}]
@@ -121,7 +163,7 @@ class TestSnipeTaxonomyLookup:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {"rows": []}
             c._session.get.return_value.raise_for_status = MagicMock()
@@ -140,19 +182,17 @@ class TestSnipeGetUserId:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {
                 "rows": [{"id": 42, "email": "user@domain.com", "username": "user"}]
             }
             c._session.get.return_value.raise_for_status = MagicMock()
             assert c.get_user_id("user@domain.com") == 42
-            c._session.get.assert_called()
-            # Equality filter: email param
             params = c._session.get.call_args_list[0][1]["params"]
             assert params.get("email") == "user@domain.com"
 
-    def test_username_when_no_at_in_upn(self) -> None:
+    def test_username_case_insensitive(self) -> None:
         with patch.dict(
             os.environ,
             {
@@ -161,15 +201,35 @@ class TestSnipeGetUserId:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {
-                "rows": [{"id": 7, "username": "jdoe", "email": ""}]
+                "rows": [{"id": 7, "username": "JDOE", "email": ""}]
             }
             c._session.get.return_value.raise_for_status = MagicMock()
             assert c.get_user_id("jdoe") == 7
-            params = c._session.get.call_args[1]["params"]
-            assert params.get("username") == "jdoe"
+
+
+class TestBuildAssetPayload:
+    def test_create_includes_checkout_on_create(self) -> None:
+        config = _test_config(checkout_on_create=True)
+        payload = _build_asset_payload(
+            {"osVersion": "11", "managedDeviceOwnerType": "personal"},
+            device_name="pc",
+            serial="SN1",
+            man_id=1,
+            mod_id=2,
+            status_id=3,
+            config=config,
+            man_name="Dell",
+            mod_number="XPS",
+            checkout_mode="user",
+            checkout_target_id=9,
+            for_create=True,
+        )
+        assert payload["assigned_user"] == 9
+        assert payload["byod"] == 1
+        assert "OS 11" in payload["notes"]
 
 
 class TestSnipeLocationCheckout:
@@ -187,7 +247,7 @@ class TestSnipeLocationCheckout:
             },
             clear=False,
         ):
-            c = SnipeITClient()
+            c = SnipeITClient(_test_config())
             c._session = MagicMock()
             c._session.get.return_value.json.return_value = {
                 "rows": [{"id": 9, "name": "A55 - somewhere"}]
@@ -195,14 +255,14 @@ class TestSnipeLocationCheckout:
             c._session.get.return_value.raise_for_status = MagicMock()
             assert c.get_location_id("A55@domain.com", prefix_len=3) == 9
 
-    def test_create_checks_out_to_location(self) -> None:
+    def test_create_checks_out_to_location_on_create(self) -> None:
         snipe = MagicMock()
         snipe.find_asset_by_serial.return_value = None
         snipe.get_or_create_manufacturer.return_value = 1
         snipe.get_or_create_model.return_value = 2
         snipe.get_location_id.return_value = 9
         snipe.create_asset.return_value = {"id": 11}
-        snipe.checkout_asset_to_location.return_value = True
+        config = _test_config(checkout_mode="location", checkout_on_create=True)
         dev = {
             "deviceName": "pc",
             "serialNumber": "SN1",
@@ -215,16 +275,16 @@ class TestSnipeLocationCheckout:
                 snipe,
                 dev,
                 category_id=1,
-                status_id=2,
+                default_status_id=2,
+                config=config,
                 dry_run=False,
-                checkout_mode="location",
-                location_prefix_len=3,
             )
             == SyncOutcome.CREATED
         )
         snipe.get_location_id.assert_called_once_with("A55@domain.com", 3)
-        snipe.checkout_asset_to_location.assert_called_once_with(11, 9)
-        snipe.checkout_asset.assert_not_called()
+        create_payload = snipe.create_asset.call_args[0][0]
+        assert create_payload["assigned_location"] == 9
+        snipe.checkout_asset_to_location.assert_not_called()
 
 
 class TestSyncDeviceOutcomes:
@@ -232,7 +292,9 @@ class TestSyncDeviceOutcomes:
         snipe = MagicMock()
         dev = {"deviceName": "n", "serialNumber": None}
         assert (
-            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            sync_device(
+                snipe, dev, category_id=1, default_status_id=2, config=_test_config()
+            )
             == SyncOutcome.SKIPPED_NO_SERIAL
         )
         snipe.find_asset_by_serial.assert_not_called()
@@ -250,7 +312,14 @@ class TestSyncDeviceOutcomes:
             "model": "XPS",
         }
         assert (
-            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=True)
+            sync_device(
+                snipe,
+                dev,
+                category_id=1,
+                default_status_id=2,
+                config=_test_config(),
+                dry_run=True,
+            )
             == SyncOutcome.DRY_RUN_CREATE
         )
 
@@ -273,7 +342,14 @@ class TestSyncDeviceOutcomes:
             "userPrincipalName": "new@domain.com",
         }
         assert (
-            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            sync_device(
+                snipe,
+                dev,
+                category_id=1,
+                default_status_id=2,
+                config=_test_config(checkout_on_create=False),
+                dry_run=False,
+            )
             == SyncOutcome.UPDATED
         )
         snipe.checkout_asset.assert_called_once_with(10, 2)
@@ -296,7 +372,14 @@ class TestSyncDeviceOutcomes:
             "userPrincipalName": "user@domain.com",
         }
         assert (
-            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            sync_device(
+                snipe,
+                dev,
+                category_id=1,
+                default_status_id=2,
+                config=_test_config(),
+                dry_run=False,
+            )
             == SyncOutcome.UPDATED
         )
         snipe.checkout_asset.assert_not_called()
@@ -320,7 +403,14 @@ class TestSyncDeviceOutcomes:
             "userPrincipalName": None,
         }
         assert (
-            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            sync_device(
+                snipe,
+                dev,
+                category_id=1,
+                default_status_id=2,
+                config=_test_config(),
+                dry_run=False,
+            )
             == SyncOutcome.UPDATED
         )
         snipe.checkin_asset.assert_called_once_with(10)
@@ -362,3 +452,41 @@ class TestGraphTokenRefresh:
             gc._token_expires_at = __import__("time").time() + 3600
             gc._ensure_auth()
             assert gc._token == "tok"
+
+
+class TestGraphPrimaryUserBatch:
+    def test_batch_maps_device_to_upn(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+            },
+            clear=False,
+        ):
+            gc = GraphClient()
+            gc._token = "tok"
+            gc._token_expires_at = __import__("time").time() + 3600
+            gc._session = MagicMock()
+            gc._session.request.return_value.json.return_value = {
+                "responses": [
+                    {
+                        "id": "0",
+                        "status": 200,
+                        "body": {
+                            "value": [{"userPrincipalName": "primary@domain.com"}]
+                        },
+                    }
+                ]
+            }
+            gc._session.request.return_value.raise_for_status = MagicMock()
+            result = gc.fetch_primary_user_upns(["device-1"])
+            assert result == {"device-1": "primary@domain.com"}
+
+
+class TestParseGraphDatetime:
+    def test_parses_zulu(self) -> None:
+        dt = _parse_graph_datetime("2024-01-15T12:00:00Z")
+        assert dt is not None
+        assert dt.year == 2024

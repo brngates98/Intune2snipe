@@ -11,6 +11,9 @@
 {{- if .Values.sync.extraArgs }}
 {{- $args = concat $args .Values.sync.extraArgs }}
 {{- end }}
+{{- if .Values.sync.usePrimaryUser }}
+{{- $args = concat $args (list "--use-primary-user") }}
+{{- end }}
 {{- if .Values.extraArgs }}
 {{- $args = concat $args .Values.extraArgs }}
 {{- end }}
@@ -103,6 +106,10 @@ spec:
                 {{- with .Values.sync.locationPrefixLength }}
                 - name: SNIPEIT_LOCATION_PREFIX_LENGTH
                   value: {{ . | quote }}
+                {{- end }}
+                {{- if .Values.sync.usePrimaryUser }}
+                - name: GRAPH_USE_PRIMARY_USER
+                  value: "true"
                 {{- end }}
               {{- if gt (len $args) 0 }}
               args:

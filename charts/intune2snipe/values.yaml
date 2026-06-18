@@ -19,12 +19,14 @@ sync:
   # Leave empty to rely on AZURE_GROUP_IDS in the Secret, or set only one source.
   groups: ""
 
-  # Checkout target for synced assets: user (default) or location.
-  # Maps to SNIPEIT_CHECKOUT_MODE when set (overrides the Secret value).
+  # Optional: user (default) or location
   checkoutMode: ""
 
   # UPN prefix length for location checkout (maps to SNIPEIT_LOCATION_PREFIX_LENGTH).
   locationPrefixLength: ""
+
+  # Resolve assignee from Graph primary user (maps to GRAPH_USE_PRIMARY_USER).
+  usePrimaryUser: false
 
   # Extra raw arguments appended after dryRun/platform/groups (advanced)
   extraArgs: []
@@ -127,6 +129,13 @@ secrets:
     snipeitCheckoutMode: ""
     # Optional; prefix length for location checkout (default in app: 3)
     snipeitLocationPrefixLength: ""
+    # Optional; status label on checkout / checkin (defaults to snipeitDefaultStatus)
+    snipeitCheckoutStatus: ""
+    snipeitCheckinStatus: ""
+    # Optional; set to "true" for GRAPH_USE_PRIMARY_USER
+    graphUsePrimaryUser: ""
+    # Optional; Snipe company id for multi-tenant CMDB
+    snipeitCompanyId: ""
     # Optional; comma-separated group object IDs (same as AZURE_GROUP_IDS)
     azureGroupIds: ""
 

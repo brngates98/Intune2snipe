@@ -90,6 +90,8 @@ All CLI options are documented in [Usage & CLI](usage-and-cli.md).
 
 ## Scheduling without Docker or Kubernetes
 
+For a **full Ubuntu server guide** (Docker or Python, env file, wrapper scripts, cron, log rotation), see **[Deployment — Ubuntu server](deployment-ubuntu.md)**.
+
 Use **cron** (Linux/macOS), **Task Scheduler** (Windows), or any job runner that can:
 
 1. Activate the same venv (or call the venv’s `python` by full path).
@@ -115,6 +117,7 @@ python -m pytest tests/ -v
 ## See also
 
 - [Getting started](getting-started.md) — overview and first dry run  
+- [Deployment — Ubuntu server](deployment-ubuntu.md) — install on Ubuntu, one-time run, cron  
 - [Configuration](configuration.md) — full variable list and Azure / Snipe setup  
 - [Usage & CLI](usage-and-cli.md) — flags and group filters  
 - [Troubleshooting](troubleshooting.md) — common errors  

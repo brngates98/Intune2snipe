@@ -10,6 +10,7 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** using a small Python
 |--------|-------------------|
 | [Getting started](getting-started.md) | Prerequisites, install, first `--dry-run` |
 | [Run locally with Python](run-local-python.md) | Virtualenv, `python3 app.py`, scheduling without Docker/K8s |
+| [Deployment — Ubuntu server](deployment-ubuntu.md) | Install on Ubuntu (Docker or Python), one-time run, cron |
 | [Configuration](configuration.md) | Environment variables, Azure app registration, Snipe-IT API token |
 | [Usage & CLI](usage-and-cli.md) | Flags, examples, Azure AD group IDs |
 | [Deployment — Docker](deployment-docker.md) | Pull/run images, GHCR login, tags |

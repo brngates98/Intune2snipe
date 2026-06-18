@@ -11,7 +11,7 @@
 
 ### Option A — Run from source (regular Python script)
 
-Use a normal Python 3.11+ environment on your machine: clone the repo, create a **virtualenv**, install dependencies with `pip`, set [environment variables](configuration.md), then run `python3 app.py` (same entrypoint as Docker). Step-by-step instructions—including Windows venv commands, cron examples, and development installs—are in **[Run locally with Python](run-local-python.md)**.
+Use a normal Python 3.11+ environment on your machine: clone the repo, create a **virtualenv**, install dependencies with `pip`, set [environment variables](configuration.md), then run `python3 app.py` (same entrypoint as Docker). Step-by-step instructions—including Windows venv commands—are in **[Run locally with Python](run-local-python.md)**. For **Ubuntu servers** with cron (Docker or Python), see **[Deployment — Ubuntu server](deployment-ubuntu.md)**.
 
 Quick version:
 

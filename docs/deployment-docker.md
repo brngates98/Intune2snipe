@@ -52,6 +52,8 @@ docker run --rm \
   --platform windows --dry-run
 ```
 
+See [Deployment — Ubuntu server](deployment-ubuntu.md) for scheduling **`docker run`** on Ubuntu with cron (wrapper script + `--env-file`).
+
 ## Build locally
 
 ```bash

@@ -7,7 +7,7 @@
 3. **Optional group filter** — If `--groups` or `AZURE_GROUP_IDS` is set, collect Azure AD **device** object IDs from those groups (`/groups/{id}/members/microsoft.graph.device`).  
 4. **List Intune managed devices** — `GET /deviceManagement/managedDevices` with `$select` (and optional `$filter` by platform).  
 5. **Optional primary user** — When `GRAPH_USE_PRIMARY_USER` or `--use-primary-user` is set, resolve assignees via Graph `$batch` to `/beta/deviceManagement/managedDevices/{id}/users`.  
-6. **Snipe-IT setup** — Ensure category `Intune`, manufacturers, models; **status labels** must already exist.  
+6. **Snipe-IT setup** — Ensures category `Intune`, manufacturers, models; **status labels** with built-in default names are **created automatically** if missing (see [Configuration](configuration.md#lifecycle-status-labels-when-using-sync_state_file)).  
 7. **Per device** — Restore soft-deleted assets if needed; **update** or **create**; **check out** or **check in** as needed; apply lifecycle when retiring.  
 8. **Reconciliation** — When `SYNC_STATE_FILE` is set, serials seen on the prior run but missing from Intune now are moved to **Pending Autopilot** (Windows + Autopilot pending) or **Archived**.  
 

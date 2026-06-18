@@ -52,7 +52,7 @@ When `--platform` is **`windows`** or **`all`**, the sync **automatically** quer
 - **Enrichment** of active Windows devices (Autopilot enrollment state in notes / optional custom fields)
 - **Pending Autopilot** — after a wipe, a Windows serial may leave Intune but remain in Autopilot; on the next run (with `SYNC_STATE_FILE`), the Snipe asset is checked in and set to status **Pending Autopilot**
 
-Set **`SYNC_STATE_FILE`** to a persistent path and create Snipe status labels **Pending Autopilot**, **Pending Retire**, and **Archived** before enabling lifecycle in production. Details: [How it works — Device lifecycle](how-it-works.md#device-lifecycle).
+Set **`SYNC_STATE_FILE`** to a persistent path. With default status label names, intune2snipe creates **Pending Autopilot**, **Pending Retire**, and **Archived** in Snipe-IT if they do not exist. Details: [How it works — Device lifecycle](how-it-works.md#device-lifecycle).
 
 ```bash
 export SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json

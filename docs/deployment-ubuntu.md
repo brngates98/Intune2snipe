@@ -98,7 +98,7 @@ Add to the env file (both options):
 SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
 ```
 
-`SYNC_STATE_FILE` is **required** for lifecycle reconciliation: when a serial was in Intune on the last run but is missing now, Windows devices still in Autopilot (e.g. after a wipe) move to Snipe status **Pending Autopilot**; others move to **Archived**. Create matching status labels in Snipe-IT first — see [Configuration — Lifecycle status labels](configuration.md#lifecycle-status-labels-when-using-sync_state_file).
+`SYNC_STATE_FILE` is **required** for lifecycle reconciliation: when a serial was in Intune on the last run but is missing now, Windows devices still in Autopilot (e.g. after a wipe) move to Snipe status **Pending Autopilot**; others move to **Archived**. With default status label names, intune2snipe creates missing labels on startup — see [Configuration — Lifecycle status labels](configuration.md#lifecycle-status-labels-when-using-sync_state_file).
 
 For **Docker (Option A)**, mount that directory in the wrapper script. For **Python (Option B)**, the app writes directly to the path.
 

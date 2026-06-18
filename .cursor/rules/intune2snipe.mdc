@@ -22,7 +22,7 @@ Sync **Microsoft Intune** (MDM) devices → **Snipe-IT** assets via `app.py` (Py
 
 - **Role:** Target **CMDB** — hardware assets, checkout, taxonomy (models/categories/manufacturers/status labels).
 - **Base URL:** `SNIPEIT_URL` **must** end with `/api/v1`. Bearer `SNIPEIT_API_TOKEN`.
-- **Endpoints used (under `/api/v1`):** `/hardware`, `/hardware/byserial`, `/hardware/{id}/restore`, `/hardware/{id}/checkout`, `/users` (with **`email`** / **`username`** query params for **exact** match — not fuzzy `search`), `/statuslabels`, `/categories`, `/manufacturers`, `/models`.
+- **Endpoints used (under `/api/v1`):** `/hardware`, `/hardware/byserial`, `/hardware/{id}/restore`, `/hardware/{id}/checkout`, `/users` (with **`email`** / **`username`** query params for **exact** match — not fuzzy `search`), `/statuslabels` (lookup; **POST** auto-creates built-in default names when missing), `/categories`, `/manufacturers`, `/models`.
 - **Status:** `SNIPEIT_DEFAULT_STATUS` must match an **existing** status label name. Lifecycle: **Pending Autopilot**, **Pending Retire**, **Archived** when `SYNC_STATE_FILE` is set.
 - **Users:** Resolve Snipe user id by **equality** filters on `GET /users` — see [Snipe users API](https://snipe-it.readme.io/reference/users). UPNs from Graph may be normalized (e.g. strip Android Enterprise GUID prefix).
 

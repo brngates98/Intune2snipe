@@ -20,6 +20,8 @@ API references (validate behavior against current docs):
   https://snipe-it.readme.io/reference/users
 - Snipe-IT REST API — Hardware checkout (user / location):
   https://snipe-it.readme.io/reference/hardware-checkout
+- Snipe-IT REST API — Status labels:
+  https://snipe-it.readme.io/reference/statuslabels-1
 
 Usage:
     python3 app.py --dry-run --platform windows
@@ -118,6 +120,19 @@ AUTOPILOT_CUSTOM_FIELD_ENV: dict[str, str] = {
     "lastContactedDateTime": "SNIPEIT_CF_AUTOPILOT_LAST_CONTACTED",
 }
 
+BUILTIN_DEFAULT_STATUS = "Ready to Deploy"
+BUILTIN_STATUS_PENDING_AUTOPILOT = "Pending Autopilot"
+BUILTIN_STATUS_PENDING_RETIRE = "Pending Retire"
+BUILTIN_STATUS_ARCHIVED = "Archived"
+
+# Snipe-IT status label ``type`` for built-in default names (see POST /statuslabels).
+BUILTIN_STATUS_TYPES: dict[str, str] = {
+    BUILTIN_DEFAULT_STATUS: "deployable",
+    BUILTIN_STATUS_PENDING_AUTOPILOT: "pending",
+    BUILTIN_STATUS_PENDING_RETIRE: "pending",
+    BUILTIN_STATUS_ARCHIVED: "archived",
+}
+
 
 class SnipeAPIError(Exception):
     """Snipe-IT returned HTTP 200 with status=error in the JSON body."""
@@ -180,6 +195,18 @@ def _parse_int_env(name: str, default: int | None = None) -> int | None:
         return default
 
 
+def _env_status_name(env_key: str, builtin_default: str) -> tuple[str, bool]:
+    """Return status label name and whether missing labels may be auto-created."""
+    raw = os.getenv(env_key, "").strip()
+    if not raw:
+        return builtin_default, True
+    return raw, False
+
+
+def _builtin_status_type(name: str) -> str:
+    return BUILTIN_STATUS_TYPES.get(name, "deployable")
+
+
 @dataclass
 class SyncConfig:
     checkout_mode: str = "user"
@@ -201,11 +228,28 @@ class SyncConfig:
     status_pending_autopilot: str = "Pending Autopilot"
     status_pending_retire: str = "Pending Retire"
     status_archived: str = "Archived"
+    auto_create_default_status: bool = True
+    auto_create_pending_autopilot: bool = True
+    auto_create_pending_retire: bool = True
+    auto_create_archived: bool = True
 
     @classmethod
     def from_env(cls, *, use_primary_user_cli: bool | None = None) -> SyncConfig:
         checkout_status = os.getenv("SNIPEIT_CHECKOUT_STATUS", "").strip() or None
         checkin_status = os.getenv("SNIPEIT_CHECKIN_STATUS", "").strip() or None
+        default_name, auto_default = _env_status_name(
+            "SNIPEIT_DEFAULT_STATUS", BUILTIN_DEFAULT_STATUS
+        )
+        pending_ap, auto_ap = _env_status_name(
+            "SNIPEIT_STATUS_PENDING_AUTOPILOT", BUILTIN_STATUS_PENDING_AUTOPILOT
+        )
+        pending_retire, auto_retire = _env_status_name(
+            "SNIPEIT_STATUS_PENDING_RETIRE", BUILTIN_STATUS_PENDING_RETIRE
+        )
+        archived_name, auto_archived = _env_status_name(
+            "SNIPEIT_STATUS_ARCHIVED", BUILTIN_STATUS_ARCHIVED
+        )
+        auto_create_enabled = not _parse_bool_env("SNIPEIT_SKIP_STATUS_AUTO_CREATE", False)
         use_primary = (
             use_primary_user_cli
             if use_primary_user_cli is not None
@@ -225,7 +269,7 @@ class SyncConfig:
             checkout_on_create=not _parse_bool_env("SNIPEIT_SKIP_CHECKOUT_ON_CREATE", False),
             custom_fields=custom_fields,
             compliance_status_map=_parse_json_env("SNIPEIT_COMPLIANCE_STATUS_MAP"),
-            default_status_name=os.getenv("SNIPEIT_DEFAULT_STATUS", "Ready to Deploy"),
+            default_status_name=default_name,
             checkout_status_name=checkout_status,
             checkin_status_name=checkin_status,
             skip_autopilot=_parse_bool_env("SNIPEIT_SKIP_AUTOPILOT", False),
@@ -235,13 +279,13 @@ class SyncConfig:
             lifecycle_reconciliation=not _parse_bool_env(
                 "SNIPEIT_SKIP_LIFECYCLE_RECONCILIATION", False
             ),
-            status_pending_autopilot=os.getenv(
-                "SNIPEIT_STATUS_PENDING_AUTOPILOT", "Pending Autopilot"
-            ).strip(),
-            status_pending_retire=os.getenv(
-                "SNIPEIT_STATUS_PENDING_RETIRE", "Pending Retire"
-            ).strip(),
-            status_archived=os.getenv("SNIPEIT_STATUS_ARCHIVED", "Archived").strip(),
+            status_pending_autopilot=pending_ap,
+            status_pending_retire=pending_retire,
+            status_archived=archived_name,
+            auto_create_default_status=auto_create_enabled and auto_default,
+            auto_create_pending_autopilot=auto_create_enabled and auto_ap,
+            auto_create_pending_retire=auto_create_enabled and auto_retire,
+            auto_create_archived=auto_create_enabled and auto_archived,
         )
 
 
@@ -644,14 +688,55 @@ class SnipeITClient:
         log.warning("Could not create model '%s': %s", model_number, resp)
         return None
 
-    def get_status_id(self, name: str) -> int | None:
+    def _lookup_status_id(self, name: str) -> int | None:
         if name in self._status_cache:
             return self._status_cache[name]
         for row in self._iter_rows("/statuslabels"):
             if row.get("name") == name:
                 self._status_cache[name] = row["id"]
                 return row["id"]
-        log.error("Status label '%s' not found", name)
+        return None
+
+    def get_status_id(self, name: str) -> int | None:
+        status_id = self._lookup_status_id(name)
+        if status_id is None:
+            log.error("Status label '%s' not found", name)
+        return status_id
+
+    def get_or_create_status_id(
+        self,
+        name: str,
+        *,
+        status_type: str = "deployable",
+        create_if_missing: bool = False,
+        dry_run: bool = False,
+    ) -> int | None:
+        status_id = self._lookup_status_id(name)
+        if status_id is not None:
+            return status_id
+        if not create_if_missing:
+            return None
+        if dry_run:
+            log.info(
+                "[DRY RUN] Would create status label '%s' (type=%s)",
+                name,
+                status_type,
+            )
+            return None
+        try:
+            resp = self._post("/statuslabels", {"name": name, "type": status_type})
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.error("Failed to create status label '%s': %s", name, exc)
+            return None
+        if resp.get("payload"):
+            status_id = resp["payload"]["id"]
+            self._status_cache[name] = status_id
+            log.info("Created status label '%s' (id=%s, type=%s)", name, status_id, status_type)
+            return status_id
+        status_id = self._lookup_status_id(name)
+        if status_id is not None:
+            return status_id
+        log.warning("Could not create status label '%s': %s", name, resp)
         return None
 
     def get_user_id(self, upn: str | None) -> int | None:
@@ -1511,6 +1596,35 @@ def reconcile_missing_devices(
     return counts
 
 
+def _status_unavailable(
+    status_id: int | None,
+    *,
+    auto_create: bool,
+    dry_run: bool,
+) -> bool:
+    """True when a required status label is missing and will not be created this run."""
+    if status_id is not None:
+        return False
+    if auto_create and dry_run:
+        return False
+    return True
+
+
+def _resolve_startup_status_id(
+    snipe: SnipeITClient,
+    name: str,
+    *,
+    auto_create: bool,
+    dry_run: bool,
+) -> int | None:
+    return snipe.get_or_create_status_id(
+        name,
+        status_type=_builtin_status_type(name),
+        create_if_missing=auto_create,
+        dry_run=dry_run,
+    )
+
+
 def sync_device(
     snipe: SnipeITClient,
     device: dict,
@@ -1742,33 +1856,85 @@ def main() -> None:
         primary_upns = graph.fetch_primary_user_upns(device_ids)
 
     category_id = snipe.get_or_create_category("Intune", dry_run=args.dry_run)
-    default_status_id = snipe.get_status_id(config.default_status_name)
-    if default_status_id is None:
-        log.error("Cannot proceed without a valid status label")
+    default_status_id = _resolve_startup_status_id(
+        snipe,
+        config.default_status_name,
+        auto_create=config.auto_create_default_status,
+        dry_run=args.dry_run,
+    )
+    if _status_unavailable(
+        default_status_id,
+        auto_create=config.auto_create_default_status,
+        dry_run=args.dry_run,
+    ):
+        log.error(
+            "Cannot proceed without status label '%s' "
+            "(create it in Snipe-IT or use the built-in default name)",
+            config.default_status_name,
+        )
         sys.exit(1)
 
-    if config.checkout_status_name and snipe.checkout_status_id() is None:
-        log.error("Checkout status label '%s' not found", config.checkout_status_name)
-        sys.exit(1)
+    if config.checkout_status_name:
+        checkout_id = snipe.get_status_id(config.checkout_status_name)
+        if checkout_id is None:
+            log.error("Checkout status label '%s' not found", config.checkout_status_name)
+            sys.exit(1)
+        snipe._checkout_status_id = checkout_id
+    elif default_status_id is not None:
+        snipe._checkout_status_id = default_status_id
+
+    if config.checkin_status_name:
+        checkin_id = snipe.get_status_id(config.checkin_status_name)
+        if checkin_id is None:
+            log.error("Checkin status label '%s' not found", config.checkin_status_name)
+            sys.exit(1)
+        snipe._checkin_status_id = checkin_id
+    elif default_status_id is not None:
+        snipe._checkin_status_id = default_status_id
 
     lifecycle_status_ids: dict[str, int | None] = {
-        "pending_retire": snipe.get_status_id(config.status_pending_retire),
+        "pending_retire": _resolve_startup_status_id(
+            snipe,
+            config.status_pending_retire,
+            auto_create=config.auto_create_pending_retire,
+            dry_run=args.dry_run,
+        ),
     }
-    if lifecycle_status_ids["pending_retire"] is None:
+    if _status_unavailable(
+        lifecycle_status_ids["pending_retire"],
+        auto_create=config.auto_create_pending_retire,
+        dry_run=args.dry_run,
+    ):
         log.warning(
             "Lifecycle status label '%s' not found; retiring devices use default status",
             config.status_pending_retire,
         )
     if config.lifecycle_reconciliation and config.sync_state_file:
-        lifecycle_status_ids["pending_autopilot"] = snipe.get_status_id(
-            config.status_pending_autopilot
+        lifecycle_status_ids["pending_autopilot"] = _resolve_startup_status_id(
+            snipe,
+            config.status_pending_autopilot,
+            auto_create=config.auto_create_pending_autopilot,
+            dry_run=args.dry_run,
         )
-        lifecycle_status_ids["archived"] = snipe.get_status_id(config.status_archived)
-        for label, sid in (
-            (config.status_pending_autopilot, lifecycle_status_ids["pending_autopilot"]),
-            (config.status_archived, lifecycle_status_ids["archived"]),
+        lifecycle_status_ids["archived"] = _resolve_startup_status_id(
+            snipe,
+            config.status_archived,
+            auto_create=config.auto_create_archived,
+            dry_run=args.dry_run,
+        )
+        for label, sid, auto_create in (
+            (
+                config.status_pending_autopilot,
+                lifecycle_status_ids["pending_autopilot"],
+                config.auto_create_pending_autopilot,
+            ),
+            (
+                config.status_archived,
+                lifecycle_status_ids["archived"],
+                config.auto_create_archived,
+            ),
         ):
-            if sid is None:
+            if _status_unavailable(sid, auto_create=auto_create, dry_run=args.dry_run):
                 log.error(
                     "Lifecycle status label '%s' not found in Snipe-IT "
                     "(required when SYNC_STATE_FILE is set)",

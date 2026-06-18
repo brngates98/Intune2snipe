@@ -43,8 +43,8 @@
 
 **Status label not found**
 
-- `SNIPEIT_DEFAULT_STATUS` must **exactly** match an existing label (case-sensitive) under **Settings → Status Labels**  
-- With **`SYNC_STATE_FILE`**, also create **Pending Autopilot**, **Pending Retire**, and **Archived** (or match your `SNIPEIT_STATUS_*` overrides) — see [Configuration](configuration.md)  
+- `SNIPEIT_DEFAULT_STATUS` must match the label name in Snipe-IT (case-sensitive). With the **default name** `Ready to Deploy`, intune2snipe creates it if missing; **custom** names must already exist under **Settings → Status Labels**  
+- With **`SYNC_STATE_FILE`** and default `SNIPEIT_STATUS_*` names, lifecycle labels are also auto-created — see [Configuration](configuration.md)  
 
 **Lifecycle / Pending Autopilot not updating**
 

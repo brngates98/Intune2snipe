@@ -19,11 +19,13 @@ from app import (
     _device_in_retire_state,
     _device_user_upn,
     _enrich_device_autopilot,
+    _env_status_name,
     _format_summary,
     _managed_devices_url,
     _parse_group_ids,
     _parse_graph_datetime,
     _platform_includes_windows,
+    _status_unavailable,
     _upn_location_prefix,
     fetch_group_device_ids,
     fetch_managed_devices,
@@ -676,3 +678,152 @@ class TestParseGraphDatetime:
         dt = _parse_graph_datetime("2024-01-15T12:00:00Z")
         assert dt is not None
         assert dt.year == 2024
+
+
+class TestEnvStatusName:
+    def test_empty_uses_builtin_and_auto_create(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            name, auto = _env_status_name("SNIPEIT_DEFAULT_STATUS", "Ready to Deploy")
+        assert name == "Ready to Deploy"
+        assert auto is True
+
+    def test_custom_name_disables_auto_create(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"SNIPEIT_DEFAULT_STATUS": "Deployed"},
+            clear=True,
+        ):
+            name, auto = _env_status_name("SNIPEIT_DEFAULT_STATUS", "Ready to Deploy")
+        assert name == "Deployed"
+        assert auto is False
+
+
+class TestStatusUnavailable:
+    def test_missing_without_auto_create_blocks(self) -> None:
+        assert _status_unavailable(None, auto_create=False, dry_run=False) is True
+
+    def test_missing_with_auto_create_dry_run_allows(self) -> None:
+        assert _status_unavailable(None, auto_create=True, dry_run=True) is False
+
+    def test_present_always_ok(self) -> None:
+        assert _status_unavailable(5, auto_create=False, dry_run=False) is False
+
+
+class TestSyncConfigStatusAutoCreate:
+    def test_defaults_enable_auto_create(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+                "SNIPEIT_URL": "https://snipe.example/api/v1",
+                "SNIPEIT_API_TOKEN": "tok",
+            },
+            clear=True,
+        ):
+            cfg = SyncConfig.from_env()
+        assert cfg.auto_create_default_status is True
+        assert cfg.auto_create_pending_autopilot is True
+        assert cfg.default_status_name == "Ready to Deploy"
+
+    def test_custom_status_name_disables_auto_create(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+                "SNIPEIT_URL": "https://snipe.example/api/v1",
+                "SNIPEIT_API_TOKEN": "tok",
+                "SNIPEIT_STATUS_ARCHIVED": "Retired",
+            },
+            clear=True,
+        ):
+            cfg = SyncConfig.from_env()
+        assert cfg.status_archived == "Retired"
+        assert cfg.auto_create_archived is False
+
+    def test_skip_flag_disables_all_auto_create(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+                "SNIPEIT_URL": "https://snipe.example/api/v1",
+                "SNIPEIT_API_TOKEN": "tok",
+                "SNIPEIT_SKIP_STATUS_AUTO_CREATE": "true",
+            },
+            clear=True,
+        ):
+            cfg = SyncConfig.from_env()
+        assert cfg.auto_create_default_status is False
+        assert cfg.auto_create_pending_autopilot is False
+
+
+class TestGetOrCreateStatusId:
+    _SNIPE_ENV = {
+        "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+        "SNIPEIT_API_TOKEN": "token",
+    }
+
+    def test_returns_existing_without_post(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._status_cache["Ready to Deploy"] = 42
+            assert (
+                snipe.get_or_create_status_id(
+                    "Ready to Deploy",
+                    create_if_missing=True,
+                )
+                == 42
+            )
+
+    def test_creates_when_missing(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._iter_rows = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+            snipe._post = MagicMock(  # type: ignore[method-assign]
+                return_value={"payload": {"id": 99, "name": "Pending Autopilot"}}
+            )
+            status_id = snipe.get_or_create_status_id(
+                "Pending Autopilot",
+                status_type="pending",
+                create_if_missing=True,
+            )
+            assert status_id == 99
+            snipe._post.assert_called_once_with(
+                "/statuslabels",
+                {"name": "Pending Autopilot", "type": "pending"},
+            )
+
+    def test_does_not_create_when_disabled(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._iter_rows = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+            snipe._post = MagicMock()  # type: ignore[method-assign]
+            assert (
+                snipe.get_or_create_status_id(
+                    "Archived",
+                    create_if_missing=False,
+                )
+                is None
+            )
+            snipe._post.assert_not_called()
+
+    def test_dry_run_logs_without_post(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._iter_rows = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+            snipe._post = MagicMock()  # type: ignore[method-assign]
+            assert (
+                snipe.get_or_create_status_id(
+                    "Archived",
+                    status_type="archived",
+                    create_if_missing=True,
+                    dry_run=True,
+                )
+                is None
+            )
+            snipe._post.assert_not_called()

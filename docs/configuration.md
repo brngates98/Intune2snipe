@@ -9,7 +9,7 @@
 | `AZURE_CLIENT_SECRET` | Client secret value |
 | `SNIPEIT_URL` | Snipe-IT base API URL — **must end with** `/api/v1` |
 | `SNIPEIT_API_TOKEN` | Snipe-IT personal API token |
-| `SNIPEIT_DEFAULT_STATUS` | Exact name of an **existing** Snipe-IT status label (case-sensitive) |
+| `SNIPEIT_DEFAULT_STATUS` | Default Snipe-IT status label name (default: `Ready to Deploy`; **auto-created** if missing when unset) |
 
 ## Optional — sync behavior
 
@@ -32,6 +32,7 @@
 | `SNIPEIT_STATUS_PENDING_AUTOPILOT` | Snipe status when Windows device left Intune but remains in Autopilot pending re-deploy (default: `Pending Autopilot`) |
 | `SNIPEIT_STATUS_PENDING_RETIRE` | Snipe status when Intune `managementState` is retire/wipe/delete in progress (default: `Pending Retire`) |
 | `SNIPEIT_STATUS_ARCHIVED` | Snipe status when device left Intune and is not Autopilot-pending (default: `Archived`) |
+| `SNIPEIT_SKIP_STATUS_AUTO_CREATE` | Set to `true` to never create missing status labels via API (default: auto-create built-in default names only) |
 
 CLI: `--use-primary-user` enables primary-user lookup for a single run (overrides `GRAPH_USE_PRIMARY_USER` when passed).
 
@@ -116,13 +117,16 @@ export SNIPEIT_CF_AUTOPILOT_LAST_CONTACTED=autopilot_last_contacted
 
 ### Lifecycle status labels (when using `SYNC_STATE_FILE`)
 
-Create these **status label** names in Snipe-IT (or override via env vars above):
+When you use the **built-in default names** (leave `SNIPEIT_DEFAULT_STATUS` and `SNIPEIT_STATUS_*` unset, or set them to the defaults below), intune2snipe **creates any missing status labels** in Snipe-IT via `POST /statuslabels` on startup:
 
-- **Pending Autopilot** — Windows device gone from Intune, still in Autopilot awaiting re-deploy  
-- **Pending Retire** — Intune retire/wipe/delete in progress  
-- **Archived** — Device removed from Intune and not Autopilot-pending  
+- **Ready to Deploy** (`deployable`) — default status for new/updated assets  
+- **Pending Autopilot** (`pending`) — Windows device gone from Intune, still in Autopilot awaiting re-deploy  
+- **Pending Retire** (`pending`) — Intune retire/wipe/delete in progress  
+- **Archived** (`archived`) — Device removed from Intune and not Autopilot-pending  
 
-Compliance-driven statuses from `SNIPEIT_COMPLIANCE_STATUS_MAP` apply on **create and update** for active Intune devices.
+If you set a **custom** name via `SNIPEIT_DEFAULT_STATUS` or `SNIPEIT_STATUS_*`, that label must **already exist** in Snipe-IT (same as checkout/checkin overrides). Set `SNIPEIT_SKIP_STATUS_AUTO_CREATE=true` to disable all auto-creation.
+
+Compliance-driven statuses from `SNIPEIT_COMPLIANCE_STATUS_MAP` must always exist in Snipe-IT; they are never auto-created.
 
 ## Security notes
 

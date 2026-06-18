@@ -12,6 +12,8 @@ API references (validate behavior against current docs):
   https://learn.microsoft.com/en-us/graph/api/group-list-members
 - Snipe-IT REST API — Users index (email / username query params):
   https://snipe-it.readme.io/reference/users
+- Snipe-IT REST API — Hardware checkout (user / location):
+  https://snipe-it.readme.io/reference/hardware-checkout
 
 Usage:
     python3 app.py --dry-run --platform windows
@@ -185,6 +187,7 @@ class SnipeITClient:
         self._model_cache: dict[str, int] = {}
         self._status_cache: dict[str, int] = {}
         self._user_cache: dict[str, int | None] = {}
+        self._location_cache: dict[str, int | None] = {}
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -380,6 +383,32 @@ class SnipeITClient:
         self._user_cache[cache_key] = user_id
         return user_id
 
+    def get_location_id(self, upn: str | None, prefix_len: int = 3) -> int | None:
+        """Resolve Snipe-IT location id from the leading characters of the UPN local part."""
+        prefix = _upn_location_prefix(upn, prefix_len)
+        if not prefix:
+            return None
+        cache_key = prefix.casefold()
+        if cache_key in self._location_cache:
+            return self._location_cache[cache_key]
+
+        data = self._get("/locations", params={"search": prefix})
+        location_id: int | None = None
+        for row in data.get("rows", []):
+            name = row.get("name") or ""
+            if name.casefold().startswith(cache_key):
+                location_id = row["id"]
+                break
+
+        if location_id is None:
+            log.warning(
+                "No Snipe-IT location found with name prefix '%s' for %s",
+                prefix,
+                upn,
+            )
+        self._location_cache[cache_key] = location_id
+        return location_id
+
     def find_asset_by_serial(self, serial: str) -> dict | None:
         """Look up an existing asset by serial number. Returns asset dict or None."""
         if not serial:
@@ -430,6 +459,22 @@ class SnipeITClient:
         log.error("Checkout failed for asset %d: %s", asset_id, resp)
         return False
 
+    def checkout_asset_to_location(self, asset_id: int, location_id: int) -> bool:
+        now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            resp = self._post(f"/hardware/{asset_id}/checkout", {
+                "checkout_to_type": "location",
+                "assigned_location": location_id,
+                "checkout_at": now,
+            })
+        except requests.RequestException as e:
+            log.error("Location checkout failed for asset %d: %s", asset_id, e)
+            return False
+        if resp.get("status") == "success":
+            return True
+        log.error("Location checkout failed for asset %d: %s", asset_id, resp)
+        return False
+
 
 # ─── SYNC LOGIC ───────────────────────────────────────────────────────────────
 
@@ -439,6 +484,34 @@ def normalize_upn(upn_raw: str | None) -> str | None:
         return None
     m = GUID_PREFIX.match(upn_raw)
     return upn_raw[m.end():] if m else upn_raw
+
+
+def _normalize_checkout_mode(mode: str) -> str:
+    normalized = mode.strip().casefold()
+    if normalized == "location":
+        return "location"
+    return "user"
+
+
+def _location_prefix_length() -> int:
+    raw = os.getenv("SNIPEIT_LOCATION_PREFIX_LENGTH", "3")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        log.warning(
+            "Invalid SNIPEIT_LOCATION_PREFIX_LENGTH=%r; using 3",
+            raw,
+        )
+        return 3
+
+
+def _upn_location_prefix(upn: str | None, prefix_len: int) -> str | None:
+    if not upn or "@" not in upn:
+        return None
+    local = upn.split("@", 1)[0]
+    if not local:
+        return None
+    return local[:prefix_len]
 
 
 def fetch_group_device_ids(graph: GraphClient, group_ids: list[str]) -> set[str] | None:
@@ -539,27 +612,64 @@ def _assigned_user_id(asset: dict | None) -> int | None:
     return None
 
 
-def _checkout_user_if_needed(
+def _assigned_location_id(asset: dict | None) -> int | None:
+    if not asset:
+        return None
+    loc = asset.get("location")
+    if isinstance(loc, dict):
+        lid = loc.get("id")
+        return int(lid) if lid is not None else None
+    lid = asset.get("location_id")
+    return int(lid) if lid is not None else None
+
+
+def _assigned_target_id(asset: dict | None, checkout_mode: str) -> int | None:
+    if checkout_mode == "location":
+        return _assigned_location_id(asset)
+    return _assigned_user_id(asset)
+
+
+def _resolve_checkout_target(
+    snipe: SnipeITClient,
+    upn: str | None,
+    *,
+    checkout_mode: str,
+    location_prefix_len: int,
+) -> tuple[str, int | None]:
+    if checkout_mode == "location":
+        return "location", snipe.get_location_id(upn, location_prefix_len)
+    return "user", snipe.get_user_id(upn)
+
+
+def _apply_checkout_if_needed(
     snipe: SnipeITClient,
     asset_id: int,
-    snipe_user_id: int | None,
+    checkout_mode: str,
+    target_id: int | None,
     upn: str | None,
     existing: dict | None,
     *,
     dry_run: bool,
 ) -> bool:
-    """Check out asset to user when assignee differs from Intune primary user."""
-    if not snipe_user_id:
+    """Check out asset when the current assignee/location differs from Intune."""
+    if not target_id:
         return True
-    if _assigned_user_id(existing) == snipe_user_id:
+    if _assigned_target_id(existing, checkout_mode) == target_id:
         return True
+    if checkout_mode == "location":
+        target_label = f"location for {upn}" if upn else "location"
+    else:
+        target_label = f"user {upn}" if upn else "user"
     if dry_run:
-        log.info("[DRY RUN] Would checkout asset %d to user %s", asset_id, upn)
+        log.info("[DRY RUN] Would checkout asset %d to %s", asset_id, target_label)
         return True
-    if snipe.checkout_asset(asset_id, snipe_user_id):
-        log.info("Checked out asset %d to user %s", asset_id, upn)
-        return True
-    return False
+    if checkout_mode == "location":
+        ok = snipe.checkout_asset_to_location(asset_id, target_id)
+    else:
+        ok = snipe.checkout_asset(asset_id, target_id)
+    if ok:
+        log.info("Checked out asset %d to %s", asset_id, target_label)
+    return ok
 
 
 def sync_device(
@@ -568,6 +678,8 @@ def sync_device(
     category_id: int,
     status_id: int,
     dry_run: bool = False,
+    checkout_mode: str = "user",
+    location_prefix_len: int = 3,
 ) -> SyncOutcome:
     """Sync a single Intune device to Snipe-IT. Creates or updates as needed."""
     device_name = device.get("deviceName", "unknown")
@@ -577,7 +689,13 @@ def sync_device(
         return SyncOutcome.SKIPPED_NO_SERIAL
 
     upn = normalize_upn(device.get("userPrincipalName"))
-    snipe_user_id = snipe.get_user_id(upn)
+    checkout_mode = _normalize_checkout_mode(checkout_mode)
+    _, checkout_target_id = _resolve_checkout_target(
+        snipe,
+        upn,
+        checkout_mode=checkout_mode,
+        location_prefix_len=location_prefix_len,
+    )
 
     man_name = device.get("manufacturer")
     mod_number = device.get("model")
@@ -601,8 +719,14 @@ def sync_device(
         asset_id = existing["id"]
         if dry_run:
             log.info("[DRY RUN] Would update existing asset %d (%s)", asset_id, device_name)
-            if not _checkout_user_if_needed(
-                snipe, asset_id, snipe_user_id, upn, existing, dry_run=True
+            if not _apply_checkout_if_needed(
+                snipe,
+                asset_id,
+                checkout_mode,
+                checkout_target_id,
+                upn,
+                existing,
+                dry_run=True,
             ):
                 return SyncOutcome.UPDATED_CHECKOUT_FAILED
             return SyncOutcome.DRY_RUN_UPDATE
@@ -614,8 +738,14 @@ def sync_device(
         if not updated:
             return SyncOutcome.UPDATE_FAILED
         log.info("Updated existing asset %d: %s", asset_id, device_name)
-        if not _checkout_user_if_needed(
-            snipe, asset_id, snipe_user_id, upn, existing, dry_run=False
+        if not _apply_checkout_if_needed(
+            snipe,
+            asset_id,
+            checkout_mode,
+            checkout_target_id,
+            upn,
+            existing,
+            dry_run=False,
         ):
             return SyncOutcome.UPDATED_CHECKOUT_FAILED
         return SyncOutcome.UPDATED
@@ -630,11 +760,15 @@ def sync_device(
     }
 
     if dry_run:
+        checkout_hint = upn or "none"
+        if checkout_mode == "location":
+            checkout_hint = _upn_location_prefix(upn, location_prefix_len) or checkout_hint
         log.info(
-            "[DRY RUN] Would create asset: %s (serial: %s, user: %s)",
+            "[DRY RUN] Would create asset: %s (serial: %s, checkout %s: %s)",
             device_name,
             serial,
-            upn or "none",
+            checkout_mode,
+            checkout_hint,
         )
         return SyncOutcome.DRY_RUN_CREATE
 
@@ -644,9 +778,15 @@ def sync_device(
     asset_id = asset["id"]
     log.info("Created asset %d: %s", asset_id, device_name)
 
-    if snipe_user_id:
-        if not _checkout_user_if_needed(
-            snipe, asset_id, snipe_user_id, upn, None, dry_run=False
+    if checkout_target_id:
+        if not _apply_checkout_if_needed(
+            snipe,
+            asset_id,
+            checkout_mode,
+            checkout_target_id,
+            upn,
+            None,
+            dry_run=False,
         ):
             return SyncOutcome.CREATED_CHECKOUT_FAILED
     return SyncOutcome.CREATED
@@ -695,6 +835,8 @@ def main() -> None:
 
     graph = GraphClient()
     snipe = SnipeITClient()
+    checkout_mode = _normalize_checkout_mode(os.getenv("SNIPEIT_CHECKOUT_MODE", "user"))
+    location_prefix_len = _location_prefix_length()
 
     devices = fetch_managed_devices(graph, args.platform, group_ids=group_ids)
     filter_info = f"platform '{args.platform}'"
@@ -710,12 +852,23 @@ def main() -> None:
         log.error("Cannot proceed without a valid status label")
         sys.exit(1)
 
-    log.info("Using category_id=%s, status_id=%s", category_id, status_id)
+    log.info(
+        "Using category_id=%s, status_id=%s, checkout_mode=%s",
+        category_id,
+        status_id,
+        checkout_mode,
+    )
 
     counts: dict[SyncOutcome, int] = {o: 0 for o in SyncOutcome}
     for dev in devices:
         outcome = sync_device(
-            snipe, dev, category_id=category_id, status_id=status_id, dry_run=args.dry_run
+            snipe,
+            dev,
+            category_id=category_id,
+            status_id=status_id,
+            dry_run=args.dry_run,
+            checkout_mode=checkout_mode,
+            location_prefix_len=location_prefix_len,
         )
         counts[outcome] += 1
 

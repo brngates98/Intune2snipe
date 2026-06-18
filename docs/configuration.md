@@ -16,6 +16,8 @@
 | Variable | Purpose |
 |----------|---------|
 | `AZURE_GROUP_IDS` | Comma-separated Azure AD **group object IDs** (see [Usage & CLI](usage-and-cli.md)) |
+| `SNIPEIT_CHECKOUT_MODE` | Checkout target: `user` (default) or `location` |
+| `SNIPEIT_LOCATION_PREFIX_LENGTH` | When checkout mode is `location`, number of characters taken from the UPN local part before `@` to match a Snipe-IT location name prefix (default: `3`) |
 
 You can also pass groups via `--groups` on the command line instead of this variable.
 

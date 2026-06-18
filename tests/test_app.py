@@ -15,6 +15,7 @@ from app import (
     _assigned_user_id,
     _format_summary,
     _parse_group_ids,
+    _upn_location_prefix,
     fetch_group_device_ids,
     normalize_upn,
     sync_device,
@@ -169,6 +170,61 @@ class TestSnipeGetUserId:
             assert c.get_user_id("jdoe") == 7
             params = c._session.get.call_args[1]["params"]
             assert params.get("username") == "jdoe"
+
+
+class TestSnipeLocationCheckout:
+    def test_upn_location_prefix(self) -> None:
+        assert _upn_location_prefix("A55@domain.com", 3) == "A55"
+        assert _upn_location_prefix("user@domain.com", 3) == "use"
+        assert _upn_location_prefix(None, 3) is None
+
+    def test_get_location_id_matches_name_prefix(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient()
+            c._session = MagicMock()
+            c._session.get.return_value.json.return_value = {
+                "rows": [{"id": 9, "name": "A55 - somewhere"}]
+            }
+            c._session.get.return_value.raise_for_status = MagicMock()
+            assert c.get_location_id("A55@domain.com", prefix_len=3) == 9
+
+    def test_create_checks_out_to_location(self) -> None:
+        snipe = MagicMock()
+        snipe.find_asset_by_serial.return_value = None
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_location_id.return_value = 9
+        snipe.create_asset.return_value = {"id": 11}
+        snipe.checkout_asset_to_location.return_value = True
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": "A55@domain.com",
+        }
+        assert (
+            sync_device(
+                snipe,
+                dev,
+                category_id=1,
+                status_id=2,
+                dry_run=False,
+                checkout_mode="location",
+                location_prefix_len=3,
+            )
+            == SyncOutcome.CREATED
+        )
+        snipe.get_location_id.assert_called_once_with("A55@domain.com", 3)
+        snipe.checkout_asset_to_location.assert_called_once_with(11, 9)
+        snipe.checkout_asset.assert_not_called()
 
 
 class TestSyncDeviceOutcomes:

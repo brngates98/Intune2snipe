@@ -12,6 +12,9 @@ stringData:
   SNIPEIT_URL: "https://your-snipeit-url/api/v1"
   SNIPEIT_API_TOKEN: "your-snipeit-api-token"
   SNIPEIT_DEFAULT_STATUS: "Ready to Deploy"
+  # Optional: user (default) or location
+  # SNIPEIT_CHECKOUT_MODE: "location"
+  # SNIPEIT_LOCATION_PREFIX_LENGTH: "3"
   AZURE_GROUP_IDS: "group-id-1,group-id-2"
 ---
 apiVersion: batch/v1

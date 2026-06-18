@@ -95,6 +95,15 @@ spec:
               envFrom:
                 - secretRef:
                     name: {{ $secretName | quote }}
+              env:
+                {{- with .Values.sync.checkoutMode }}
+                - name: SNIPEIT_CHECKOUT_MODE
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- with .Values.sync.locationPrefixLength }}
+                - name: SNIPEIT_LOCATION_PREFIX_LENGTH
+                  value: {{ . | quote }}
+                {{- end }}
               {{- if gt (len $args) 0 }}
               args:
                 {{- range $args }}

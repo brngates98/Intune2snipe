@@ -19,6 +19,13 @@ sync:
   # Leave empty to rely on AZURE_GROUP_IDS in the Secret, or set only one source.
   groups: ""
 
+  # Checkout target for synced assets: user (default) or location.
+  # Maps to SNIPEIT_CHECKOUT_MODE when set (overrides the Secret value).
+  checkoutMode: ""
+
+  # UPN prefix length for location checkout (maps to SNIPEIT_LOCATION_PREFIX_LENGTH).
+  locationPrefixLength: ""
+
   # Extra raw arguments appended after dryRun/platform/groups (advanced)
   extraArgs: []
   # - "--some-future-flag"
@@ -116,6 +123,10 @@ secrets:
     snipeitUrl: ""
     snipeitApiToken: ""
     snipeitDefaultStatus: "Ready to Deploy"
+    # Optional; user (default) or location
+    snipeitCheckoutMode: ""
+    # Optional; prefix length for location checkout (default in app: 3)
+    snipeitLocationPrefixLength: ""
     # Optional; comma-separated group object IDs (same as AZURE_GROUP_IDS)
     azureGroupIds: ""
 

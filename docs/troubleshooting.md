@@ -49,6 +49,23 @@
 - Recent releases re-checkout on update when the Intune primary user changes  
 - When Intune clears the primary user, the sync checks the asset back in  
 
+**Duplicate assets on every run**
+
+- Fixed in recent releases: serial lookup uses `GET /api/v1/hardware/byserial/{serial}`  
+- Upgrade to latest `main`/release; existing serials should update instead of creating duplicates  
+
+**`could not resolve model_id` warnings**
+
+- Often caused by manufacturer name casing (`LENOVO` in Intune vs `Lenovo` in Snipe). Recent releases match taxonomy case-insensitively  
+- Ensure the model exists in Snipe (by model number or name) or allow the sync to create it on a non-dry-run  
+
+**Location checkout (`SNIPEIT_CHECKOUT_MODE=location`)**
+
+- Set `SNIPEIT_CHECKOUT_MODE=location` and optionally `SNIPEIT_LOCATION_PREFIX_LENGTH` (default `3`)  
+- Location names must start with the UPN prefix (e.g. `A55` from `A55@domain.com` → `A55 - somewhere`)  
+- Helm: `sync.checkoutMode` / `sync.locationPrefixLength`, or the same keys in your Kubernetes Secret  
+- If no matching location exists, checkout is skipped and a warning is logged  
+
 **API / URL errors**
 
 - `SNIPEIT_URL` must end with **`/api/v1`**  

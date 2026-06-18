@@ -19,7 +19,7 @@ The workload reads the same environment variables as the container image; see [C
 | **`secrets.create: true`** | Set **`secrets.stringData.*`** in values (or a separate `-f` file). The chart creates a `Secret`; name is **`secrets.name`** or **`<release-fullname>-secrets`**. |
 | **`secrets.create: false`** (default) | Create the `Secret` yourself (`kubectl`, External Secrets, Sealed Secrets, etc.). Point the chart at it with **`secrets.existingSecret`** (default **`intune2snipe-secrets`**). Legacy **`existingSecret`** is still read if **`secrets.existingSecret`** is empty. |
 
-**Secret keys** (whether you create the Secret or the chart does): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `SNIPEIT_URL`, `SNIPEIT_API_TOKEN`, `SNIPEIT_DEFAULT_STATUS`, and optionally `AZURE_GROUP_IDS` (or use **`sync.groups`** instead of duplicating group IDs in the Secret).
+**Secret keys** (whether you create the Secret or the chart does): `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `SNIPEIT_URL`, `SNIPEIT_API_TOKEN`, `SNIPEIT_DEFAULT_STATUS`, and optionally `AZURE_GROUP_IDS` (or use **`sync.groups`** instead of duplicating group IDs in the Secret), `SNIPEIT_CHECKOUT_MODE`, and `SNIPEIT_LOCATION_PREFIX_LENGTH`.
 
 Do not commit real credentials to git. Prefer a gitignored values file, CI secrets, or a secrets operator in production.
 
@@ -81,7 +81,7 @@ helm upgrade --install intune2snipe intune2snipe/intune2snipe \
 
 | Section | Purpose |
 |---------|---------|
-| **`sync`** | CLI: `dryRun`, `platform`, `groups`, `extraArgs` |
+| **`sync`** | CLI: `dryRun`, `platform`, `groups`, `checkoutMode`, `locationPrefixLength`, `extraArgs` |
 | **`cronjob`** | Schedule, `timeZone`, `suspend`, history limits, job metadata |
 | **`image`** | `repository`, `tag`, `digest`, `pullPolicy` |
 | **`pod`** | Pod `annotations` and `labels` |
@@ -106,6 +106,8 @@ Full defaults and comments: **`values.yaml`**.
 helm upgrade --install intune2snipe ./charts/intune2snipe \
   --set sync.platform=windows \
   --set sync.dryRun=true \
+  --set sync.checkoutMode=location \
+  --set sync.locationPrefixLength=3 \
   --set cronjob.schedule="0 */6 * * *" \
   --set secrets.existingSecret=my-external-secret
 ```

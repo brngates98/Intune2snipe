@@ -191,7 +191,7 @@ jobs:
 
       - name: Create GitHub Release (committed release notes)
         if: steps.relnotes.outputs.has_custom == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           files: intune2snipe-*.tgz
@@ -202,7 +202,7 @@ jobs:
 
       - name: Create GitHub Release (auto-generated notes)
         if: steps.relnotes.outputs.has_custom == 'false'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           files: intune2snipe-*.tgz

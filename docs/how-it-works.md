@@ -13,14 +13,93 @@
 
 ## Device lifecycle
 
+The sync keeps Snipe-IT aligned with **Intune** (what is managed today) and **Windows Autopilot** (whether wiped hardware is still registered and awaiting re-deploy).
+
+### Lifecycle diagram
+
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    [*] --> Active: Device enrolled in Intune
+
+    Active --> PendingRetire: managementState is retire/wipe/delete
+    Active --> PendingAutopilot: Serial gone from Intune,\nWindows still in Autopilot pending
+    Active --> Archived: Serial gone from Intune,\nnot Autopilot-pending
+
+    PendingRetire --> Active: Back to managed in Intune
+    PendingAutopilot --> Active: Re-deployed from Autopilot to Intune
+    Archived --> Active: Re-enrolled in Intune
+
+    PendingRetire --> Archived: Removed from Intune entirely
+    PendingAutopilot --> Archived: Removed from Autopilot registry
+
+    state Active {
+        [*] --> Synced
+        Synced: Create/update asset\nCompliance status\nCheckout to user/location
+    }
+
+    state PendingRetire {
+        [*] --> Retiring
+        Retiring: Check in asset\nStatus Pending Retire
+    }
+
+    state PendingAutopilot {
+        [*] --> Waiting
+        Waiting: Check in asset\nStatus Pending Autopilot
+    }
+
+    state Archived {
+        [*] --> Stored
+        Stored: Check in asset\nStatus Archived, archived=1
+    }
+```
+
+### Per-run decision flow
+
+Each scheduled run processes **Intune devices first**, then **reconciliation** (when `SYNC_STATE_FILE` is set):
+
+```mermaid
+flowchart TD
+    A([Sync run starts]) --> B[Fetch Autopilot identities\nif platform is windows or all]
+    B --> C[List Intune managedDevices]
+    C --> D{Serial in Intune\nthis run?}
+
+    D -->|Yes| E{managementState\nretire/wipe/delete?}
+    E -->|Yes| F[Check in → Pending Retire]
+    E -->|No| G{Stale policy\nSNIPEIT_STALE_DAYS?}
+    G -->|Yes, stale| H[Check in stale asset]
+    G -->|No| I[Active sync:\nrestore if deleted,\ncreate/update,\ncompliance status,\ncheckout]
+
+    D -->|No| J{Was serial in\nSYNC_STATE_FILE\nlast run?}
+    J -->|No| K[Skip — never synced]
+    J -->|Yes| L{Windows + Autopilot\npending state?}
+    L -->|Yes| M[Check in → Pending Autopilot]
+    L -->|No| N[Check in → Archived]
+
+    F --> O[Write sync state]
+    H --> O
+    I --> O
+    M --> O
+    N --> O
+    K --> O
+    O --> P([End run])
+```
+
+**Notes:**
+
+- **Pending Autopilot** only applies to **Windows** serials still in Autopilot with `pendingReset`, `notContacted`, `failed`, or `blocked`.
+- Reconciliation needs **two runs**: the first populates `SYNC_STATE_FILE`; the second detects serials that dropped off Intune.
+- When a device **returns to Active**, the next sync clears `archived` and applies compliance/checkout again.
+
+### Lifecycle phases (reference)
+
 | Phase | Intune | Autopilot (Windows) | Snipe action |
 |-------|--------|---------------------|--------------|
 | **Active** | In `managedDevices`, `managementState=managed` | Optional match; enrich notes/custom fields | Create/update; compliance → `status_id` on create **and** update; checkout as configured |
 | **Retiring** | `retirePending`, `wipeIssued`, etc. | May show `pendingReset` | Check in; status **Pending Retire**; notes with `managementState` |
 | **Pending Autopilot** | Absent this run | `pendingReset`, `notContacted`, `failed`, `blocked` | Check in; status **Pending Autopilot** |
 | **Archived** | Absent; not Autopilot-pending | Absent or enrolled elsewhere | Check in; status **Archived**; `archived=1` |
-
-When a device **returns to Intune** (e.g. after Autopilot re-deploy), the normal active sync clears `archived` and applies compliance/checkout again.
 
 Reconciliation requires **`SYNC_STATE_FILE`** — the app compares the previous run’s serial list to the current Intune list.
 

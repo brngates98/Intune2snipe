@@ -6,7 +6,7 @@
 - An **Azure AD app registration** (application permissions) and **Snipe-IT** with API access  
   Details: [Configuration](configuration.md)
 - **Admin consent** in Azure AD for the app permissions you use
-- For **Windows lifecycle** (Pending Autopilot / Archived reconciliation): Snipe status labels **Pending Autopilot**, **Pending Retire**, and **Archived**, plus **`SYNC_STATE_FILE`** — see [How it works — Device lifecycle](how-it-works.md#device-lifecycle)
+- For **Windows lifecycle** (Pending Autopilot / Archived reconciliation): Snipe status labels **Pending Autopilot**, **Pending Retire**, and **Archived**, plus **`SYNC_STATE_FILE`** — see [How it works — lifecycle diagrams](how-it-works.md#device-lifecycle)
 
 ## Install (choose one)
 

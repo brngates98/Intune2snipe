@@ -16,7 +16,7 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** using a small Python
 | [Deployment — Docker](deployment-docker.md) | Pull/run images, GHCR login, tags |
 | [Deployment — Kubernetes](deployment-kubernetes.md) | Helm (`helm repo add` + git path), plain manifest, secrets |
 | [GitHub Pages (Helm)](github-pages-helm.md) | One-time setup so the repo hosts `index.yaml` for `helm repo add` |
-| [How it works](how-it-works.md) | Sync pipeline, Windows Autopilot lifecycle, field mapping |
+| [How it works](how-it-works.md) | Sync pipeline, lifecycle diagrams, Windows Autopilot, field mapping |
 | [Troubleshooting](troubleshooting.md) | Common errors (Graph, Snipe-IT, Docker/K8s) |
 | [Releases & images](releases-and-images.md) | Version tags, `latest` vs pinned, where packages live |
 

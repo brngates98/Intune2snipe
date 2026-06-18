@@ -55,6 +55,12 @@ SNIPEIT_DEFAULT_STATUS="Ready to Deploy"
 # GRAPH_USE_PRIMARY_USER=true
 # SNIPEIT_CHECKOUT_MODE=location
 # SNIPEIT_STALE_DAYS=30
+
+# Lifecycle + Windows Autopilot (recommended when syncing Windows)
+# SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
+# SNIPEIT_STATUS_PENDING_AUTOPILOT="Pending Autopilot"
+# SNIPEIT_STATUS_PENDING_RETIRE="Pending Retire"
+# SNIPEIT_STATUS_ARCHIVED="Archived"
 ```
 
 Lock down the file:
@@ -91,6 +97,8 @@ Add to the env file (both options):
 ```bash
 SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
 ```
+
+`SYNC_STATE_FILE` is **required** for lifecycle reconciliation: when a serial was in Intune on the last run but is missing now, Windows devices still in Autopilot (e.g. after a wipe) move to Snipe status **Pending Autopilot**; others move to **Archived**. Create matching status labels in Snipe-IT first — see [Configuration — Lifecycle status labels](configuration.md#lifecycle-status-labels-when-using-sync_state_file).
 
 For **Docker (Option A)**, mount that directory in the wrapper script. For **Python (Option B)**, the app writes directly to the path.
 

@@ -34,6 +34,7 @@ Sync **Microsoft Intune** managed devices into **Snipe-IT** with optional filter
 - Optional filter by **Azure AD group** membership
 - Normalize Android Enterprise **UPN** prefixes; auto-create Snipe **categories / manufacturers / models**
 - Create or update assets; **check out** to Snipe users matched by **email** / **username**
+- **Device lifecycle** — retire/wipe check-in, **Pending Autopilot** when Windows devices leave Intune but stay in Autopilot, **Archived** when gone from both; requires `SYNC_STATE_FILE` (see [How it works](docs/how-it-works.md))
 - **`--dry-run`**; Docker on **GHCR**; **Helm** chart + plain `k8s/` manifest
 
 ---

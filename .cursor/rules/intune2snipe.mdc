@@ -12,16 +12,18 @@ Sync **Microsoft Intune** (MDM) devices → **Snipe-IT** assets via `app.py` (Py
 - **API surface:** [Microsoft Graph](https://learn.microsoft.com/en-us/graph/overview) only — **not** legacy Intune consoles APIs. Intune data comes from **managed devices** (`deviceManagement/managedDevices`).
 - **Auth:** Azure AD app registration, **client credentials** (daemon). MSAL `ConfidentialClientApplication`, scope `https://graph.microsoft.com/.default`. Env: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`.
 - **Read path:** `GET .../deviceManagement/managedDevices` — **[List managedDevices](https://learn.microsoft.com/en-us/graph/api/intune-devices-manageddevice-list)**; follow **`@odata.nextLink`** for all pages. Optional `$filter` on `operatingSystem` for platform. Token refresh before expiry so pagination does not 401 mid-run.
+- **Windows Autopilot:** Automatic when `--platform` is `windows` or `all` — **[List windowsAutopilotDeviceIdentities](https://learn.microsoft.com/en-us/graph/api/intune-enrollment-windowsautopilotdeviceidentity-list)**; needs `DeviceManagementServiceConfig.Read.All`. Powers **Pending Autopilot** lifecycle when serials leave Intune but stay in Autopilot (`SNIPEIT_SKIP_AUTOPILOT` to disable).
+- **Lifecycle:** `SYNC_STATE_FILE` + Snipe status labels; reconcile missing Intune serials → Pending Autopilot or Archived; retire/wipe → Pending Retire; compliance `status_id` on create **and** update.
 - **Groups:** `--groups` / `AZURE_GROUP_IDS` → **[List group members](https://learn.microsoft.com/en-us/graph/api/group-list-members)** with OData cast **`microsoft.graph.device`**, intersect device IDs with managed devices.
-- **Permissions:** Typically `DeviceManagementManagedDevices.Read.All`; groups need `GroupMember.Read.All` or `Group.Read.All`; user flows may need `User.Read.All`. See `docs/configuration.md`.
+- **Permissions:** Typically `DeviceManagementManagedDevices.Read.All` + `DeviceManagementServiceConfig.Read.All` (Autopilot); groups need `GroupMember.Read.All` or `Group.Read.All`; user flows may need `User.Read.All`. See `docs/configuration.md`.
 - **Docs:** `app.py` module docstring has canonical Graph + Snipe links — use them when changing behavior.
 
 ## Snipe-IT
 
 - **Role:** Target **CMDB** — hardware assets, checkout, taxonomy (models/categories/manufacturers/status labels).
 - **Base URL:** `SNIPEIT_URL` **must** end with `/api/v1`. Bearer `SNIPEIT_API_TOKEN`.
-- **Endpoints used (under `/api/v1`):** `/hardware`, `/hardware/byserial`, `/hardware/{id}/checkout`, `/users` (with **`email`** / **`username`** query params for **exact** match — not fuzzy `search`), `/statuslabels`, `/categories`, `/manufacturers`, `/models`.
-- **Status:** `SNIPEIT_DEFAULT_STATUS` must match an **existing** status label name.
+- **Endpoints used (under `/api/v1`):** `/hardware`, `/hardware/byserial`, `/hardware/{id}/restore`, `/hardware/{id}/checkout`, `/users` (with **`email`** / **`username`** query params for **exact** match — not fuzzy `search`), `/statuslabels`, `/categories`, `/manufacturers`, `/models`.
+- **Status:** `SNIPEIT_DEFAULT_STATUS` must match an **existing** status label name. Lifecycle: **Pending Autopilot**, **Pending Retire**, **Archived** when `SYNC_STATE_FILE` is set.
 - **Users:** Resolve Snipe user id by **equality** filters on `GET /users` — see [Snipe users API](https://snipe-it.readme.io/reference/users). UPNs from Graph may be normalized (e.g. strip Android Enterprise GUID prefix).
 
 ## Ops & CI

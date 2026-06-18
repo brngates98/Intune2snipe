@@ -45,6 +45,20 @@ export AZURE_GROUP_IDS="<group-object-id-1>,<group-object-id-2>"
 python3 app.py --platform windows
 ```
 
+## Windows Autopilot and lifecycle
+
+When `--platform` is **`windows`** or **`all`**, the sync **automatically** queries [windowsAutopilotDeviceIdentities](https://learn.microsoft.com/en-us/graph/api/intune-enrollment-windowsautopilotdeviceidentity-list) (unless `SNIPEIT_SKIP_AUTOPILOT=true`). This powers:
+
+- **Enrichment** of active Windows devices (Autopilot enrollment state in notes / optional custom fields)
+- **Pending Autopilot** — after a wipe, a Windows serial may leave Intune but remain in Autopilot; on the next run (with `SYNC_STATE_FILE`), the Snipe asset is checked in and set to status **Pending Autopilot**
+
+Set **`SYNC_STATE_FILE`** to a persistent path and create Snipe status labels **Pending Autopilot**, **Pending Retire**, and **Archived** before enabling lifecycle in production. Details: [How it works — Device lifecycle](how-it-works.md#device-lifecycle).
+
+```bash
+export SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
+python3 app.py --dry-run --platform windows   # run twice to preview reconciliation
+```
+
 ## Finding Azure AD group object IDs
 
 **Azure Portal**

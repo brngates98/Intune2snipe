@@ -6,6 +6,7 @@
 - An **Azure AD app registration** (application permissions) and **Snipe-IT** with API access  
   Details: [Configuration](configuration.md)
 - **Admin consent** in Azure AD for the app permissions you use
+- For **Windows lifecycle** (Pending Autopilot / Archived reconciliation): Snipe status labels **Pending Autopilot**, **Pending Retire**, and **Archived**, plus **`SYNC_STATE_FILE`** — see [How it works — Device lifecycle](how-it-works.md#device-lifecycle)
 
 ## Install (choose one)
 
@@ -61,6 +62,8 @@ docker run --rm \
 ```
 
 Review the log output, then run **without** `--dry-run` when you are satisfied.
+
+For **Windows Autopilot lifecycle** (devices wiped in Intune but still in Autopilot → **Pending Autopilot** in Snipe), run at least **two** dry runs on `--platform windows` or `all` so `SYNC_STATE_FILE` can compare serials between runs. See [How it works](how-it-works.md).
 
 ## Next steps
 

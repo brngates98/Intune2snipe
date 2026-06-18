@@ -83,6 +83,15 @@ export AZURE_GROUP_IDS="<group-id-1>,<group-id-2>"
 export GRAPH_USE_PRIMARY_USER=true
 export SNIPEIT_CF_INTUNE_DEVICE_ID=intune_device_id
 export SNIPEIT_CF_OS_VERSION=os_version
+
+# Lifecycle + Windows Autopilot (recommended for production Windows sync)
+export SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
+export SNIPEIT_STATUS_PENDING_AUTOPILOT="Pending Autopilot"
+export SNIPEIT_STATUS_PENDING_RETIRE="Pending Retire"
+export SNIPEIT_STATUS_ARCHIVED="Archived"
+# Optional Autopilot custom fields (Windows only)
+export SNIPEIT_CF_AUTOPILOT_ENROLLMENT_STATE=autopilot_enrollment_state
+export SNIPEIT_CF_AUTOPILOT_LAST_CONTACTED=autopilot_last_contacted
 ```
 
 ## Azure AD app registration

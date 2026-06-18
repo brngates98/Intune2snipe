@@ -12,6 +12,7 @@ from app import (
     GraphClient,
     SnipeITClient,
     SyncOutcome,
+    _assigned_user_id,
     _format_summary,
     _parse_group_ids,
     fetch_group_device_ids,
@@ -196,6 +197,62 @@ class TestSyncDeviceOutcomes:
             sync_device(snipe, dev, category_id=1, status_id=2, dry_run=True)
             == SyncOutcome.DRY_RUN_CREATE
         )
+
+    def test_update_rechecks_out_when_user_changes(self) -> None:
+        snipe = MagicMock()
+        snipe.find_asset_by_serial.return_value = {
+            "id": 10,
+            "assigned_to": {"id": 1, "name": "old@domain.com"},
+        }
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_user_id.return_value = 2
+        snipe.update_asset.return_value = True
+        snipe.checkout_asset.return_value = True
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": "new@domain.com",
+        }
+        assert (
+            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            == SyncOutcome.UPDATED
+        )
+        snipe.checkout_asset.assert_called_once_with(10, 2)
+
+    def test_update_skips_checkout_when_user_unchanged(self) -> None:
+        snipe = MagicMock()
+        snipe.find_asset_by_serial.return_value = {
+            "id": 10,
+            "assigned_to": {"id": 2, "name": "user@domain.com"},
+        }
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_user_id.return_value = 2
+        snipe.update_asset.return_value = True
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": "user@domain.com",
+        }
+        assert (
+            sync_device(snipe, dev, category_id=1, status_id=2, dry_run=False)
+            == SyncOutcome.UPDATED
+        )
+        snipe.checkout_asset.assert_not_called()
+
+
+class TestAssignedUserId:
+    def test_reads_assigned_to_id(self) -> None:
+        assert _assigned_user_id({"assigned_to": {"id": 5}}) == 5
+
+    def test_missing_assignee(self) -> None:
+        assert _assigned_user_id({}) is None
+        assert _assigned_user_id(None) is None
 
 
 class TestFormatSummary:

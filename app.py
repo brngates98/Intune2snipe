@@ -526,6 +526,40 @@ class SyncOutcome(str, Enum):
     CREATED = "created"
     CREATE_FAILED = "create_failed"
     CREATED_CHECKOUT_FAILED = "created_checkout_failed"
+    UPDATED_CHECKOUT_FAILED = "updated_checkout_failed"
+
+
+def _assigned_user_id(asset: dict | None) -> int | None:
+    if not asset:
+        return None
+    assigned = asset.get("assigned_to")
+    if isinstance(assigned, dict):
+        uid = assigned.get("id")
+        return int(uid) if uid is not None else None
+    return None
+
+
+def _checkout_user_if_needed(
+    snipe: SnipeITClient,
+    asset_id: int,
+    snipe_user_id: int | None,
+    upn: str | None,
+    existing: dict | None,
+    *,
+    dry_run: bool,
+) -> bool:
+    """Check out asset to user when assignee differs from Intune primary user."""
+    if not snipe_user_id:
+        return True
+    if _assigned_user_id(existing) == snipe_user_id:
+        return True
+    if dry_run:
+        log.info("[DRY RUN] Would checkout asset %d to user %s", asset_id, upn)
+        return True
+    if snipe.checkout_asset(asset_id, snipe_user_id):
+        log.info("Checked out asset %d to user %s", asset_id, upn)
+        return True
+    return False
 
 
 def sync_device(
@@ -567,16 +601,24 @@ def sync_device(
         asset_id = existing["id"]
         if dry_run:
             log.info("[DRY RUN] Would update existing asset %d (%s)", asset_id, device_name)
+            if not _checkout_user_if_needed(
+                snipe, asset_id, snipe_user_id, upn, existing, dry_run=True
+            ):
+                return SyncOutcome.UPDATED_CHECKOUT_FAILED
             return SyncOutcome.DRY_RUN_UPDATE
         updated = snipe.update_asset(asset_id, {
             "name": device_name,
             "model_id": mod_id,
             "notes": f"Updated from Intune: {man_name} {mod_number}",
         })
-        if updated:
-            log.info("Updated existing asset %d: %s", asset_id, device_name)
-            return SyncOutcome.UPDATED
-        return SyncOutcome.UPDATE_FAILED
+        if not updated:
+            return SyncOutcome.UPDATE_FAILED
+        log.info("Updated existing asset %d: %s", asset_id, device_name)
+        if not _checkout_user_if_needed(
+            snipe, asset_id, snipe_user_id, upn, existing, dry_run=False
+        ):
+            return SyncOutcome.UPDATED_CHECKOUT_FAILED
+        return SyncOutcome.UPDATED
 
     payload = {
         "name": device_name,
@@ -603,9 +645,9 @@ def sync_device(
     log.info("Created asset %d: %s", asset_id, device_name)
 
     if snipe_user_id:
-        if snipe.checkout_asset(asset_id, snipe_user_id):
-            log.info("Checked out asset %d to user %s", asset_id, upn)
-        else:
+        if not _checkout_user_if_needed(
+            snipe, asset_id, snipe_user_id, upn, None, dry_run=False
+        ):
             return SyncOutcome.CREATED_CHECKOUT_FAILED
     return SyncOutcome.CREATED
 
@@ -621,6 +663,7 @@ def _format_summary(counts: dict[SyncOutcome, int], dry_run: bool) -> str:
         (SyncOutcome.CREATE_FAILED, "create failed"),
         (SyncOutcome.UPDATE_FAILED, "update failed"),
         (SyncOutcome.CREATED_CHECKOUT_FAILED, "created (checkout failed)"),
+        (SyncOutcome.UPDATED_CHECKOUT_FAILED, "updated (checkout failed)"),
         (SyncOutcome.SKIPPED_NO_SERIAL, "skipped (no serial)"),
         (SyncOutcome.SKIPPED_NO_MODEL, "skipped (no model)"),
         (SyncOutcome.DRY_RUN_CREATE, "would create"),

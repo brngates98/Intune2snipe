@@ -69,6 +69,28 @@ class TestFetchGroupDeviceIds:
             fetch_group_device_ids(g, ["g1"])
 
 
+class TestFindAssetBySerial:
+    def test_uses_path_not_query_param(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient()
+            c._session = MagicMock()
+            c._session.get.return_value.json.return_value = {
+                "rows": [{"id": 99, "serial": "SN123"}]
+            }
+            c._session.get.return_value.raise_for_status = MagicMock()
+            assert c.find_asset_by_serial("SN123") == {"id": 99, "serial": "SN123"}
+            url = c._session.get.call_args[0][0]
+            assert url.endswith("/api/v1/hardware/byserial/SN123")
+            assert c._session.get.call_args[1].get("params") is None
+
+
 class TestSnipeGetUserId:
     def test_email_exact_match(self) -> None:
         with patch.dict(

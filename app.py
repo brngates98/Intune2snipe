@@ -33,6 +33,7 @@ from enum import Enum
 import requests
 from msal import ConfidentialClientApplication
 from requests.adapters import HTTPAdapter
+from urllib.parse import quote
 from urllib3.util.retry import Retry
 
 # ─── LOGGING ──────────────────────────────────────────────────────────────────
@@ -348,9 +349,17 @@ class SnipeITClient:
         """Look up an existing asset by serial number. Returns asset dict or None."""
         if not serial:
             return None
-        data = self._get("/hardware/byserial", params={"serial": serial})
-        rows = data.get("rows", [])
-        return rows[0] if rows else None
+        path = f"/hardware/byserial/{quote(serial, safe='')}"
+        data = self._get(path)
+        rows = data.get("rows")
+        if rows:
+            return rows[0]
+        if data.get("id"):
+            return data
+        payload = data.get("payload")
+        if isinstance(payload, dict) and payload.get("id"):
+            return payload
+        return None
 
     def create_asset(self, payload: dict) -> dict | None:
         resp = self._post("/hardware", payload)

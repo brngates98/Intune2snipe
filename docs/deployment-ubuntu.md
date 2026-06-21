@@ -42,13 +42,13 @@ sudo nano /etc/intune2snipe/env
 Example contents (replace placeholders — see [Configuration](configuration.md) for the full list):
 
 ```bash
-AZURE_TENANT_ID="<tenant-guid>"
-AZURE_CLIENT_ID="<app-client-id>"
-AZURE_CLIENT_SECRET="<client-secret>"
+AZURE_TENANT_ID=<tenant-guid>
+AZURE_CLIENT_ID=<app-client-id>
+AZURE_CLIENT_SECRET=<client-secret>
 
-SNIPEIT_URL="https://snipe.example.com/api/v1"
-SNIPEIT_API_TOKEN="<api-token>"
-SNIPEIT_DEFAULT_STATUS="Ready to Deploy"
+SNIPEIT_URL=https://snipe.example.com/api/v1
+SNIPEIT_API_TOKEN=<api-token>
+SNIPEIT_DEFAULT_STATUS=Ready to Deploy
 
 # Optional
 # AZURE_GROUP_IDS="<group-id-1>,<group-id-2>"
@@ -58,9 +58,9 @@ SNIPEIT_DEFAULT_STATUS="Ready to Deploy"
 
 # Lifecycle + Windows Autopilot (recommended when syncing Windows)
 # SYNC_STATE_FILE=/var/lib/intune2snipe/sync-state.json
-# SNIPEIT_STATUS_PENDING_AUTOPILOT="Pending Autopilot"
-# SNIPEIT_STATUS_PENDING_RETIRE="Pending Retire"
-# SNIPEIT_STATUS_ARCHIVED="Archived"
+# SNIPEIT_STATUS_PENDING_AUTOPILOT=Pending Autopilot
+# SNIPEIT_STATUS_PENDING_RETIRE=Pending Retire
+# SNIPEIT_STATUS_ARCHIVED=Archived
 ```
 
 Lock down the file:

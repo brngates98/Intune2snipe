@@ -1,2 +1,2 @@
 # Dev / CI only (tests)
-pytest==9.1.0
+pytest==9.1.1

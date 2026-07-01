@@ -141,6 +141,24 @@ class TestFindAssetBySerial:
             url = c._session.get.call_args[0][0]
             assert url.endswith("/api/v1/hardware/byserial/SN123")
 
+    def test_returns_none_when_snipe_reports_not_found(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+                "SNIPEIT_API_TOKEN": "token",
+            },
+            clear=False,
+        ):
+            c = SnipeITClient(_test_config())
+            c._session = MagicMock()
+            c._session.get.return_value.json.return_value = {
+                "status": "error",
+                "messages": "Asset does not exist.",
+            }
+            c._session.get.return_value.raise_for_status = MagicMock()
+            assert c.find_asset_by_serial("NEW-SERIAL") is None
+
 
 class TestSnipeTaxonomyLookup:
     def test_manufacturer_case_insensitive_match(self) -> None:
@@ -236,7 +254,44 @@ class TestBuildAssetPayload:
         )
         assert payload["assigned_user"] == 9
         assert payload["byod"] == 1
+        assert payload["asset_tag"] == "pc"
         assert "OS 11" in payload["notes"]
+
+    def test_create_asset_tag_falls_back_to_serial(self) -> None:
+        config = _test_config()
+        payload = _build_asset_payload(
+            {},
+            device_name="",
+            serial="SN-FALLBACK",
+            man_id=1,
+            mod_id=2,
+            status_id=3,
+            config=config,
+            man_name="Dell",
+            mod_number="XPS",
+            checkout_mode="user",
+            checkout_target_id=None,
+            for_create=True,
+        )
+        assert payload["asset_tag"] == "SN-FALLBACK"
+
+    def test_update_omits_asset_tag(self) -> None:
+        config = _test_config()
+        payload = _build_asset_payload(
+            {"osVersion": "11"},
+            device_name="pc",
+            serial="SN1",
+            man_id=1,
+            mod_id=2,
+            status_id=99,
+            config=config,
+            man_name="Dell",
+            mod_number="XPS",
+            checkout_mode="user",
+            checkout_target_id=None,
+            for_create=False,
+        )
+        assert "asset_tag" not in payload
 
     def test_update_includes_status_id(self) -> None:
         config = _test_config()

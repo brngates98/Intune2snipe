@@ -802,7 +802,9 @@ class SnipeITClient:
         params = {"deleted": "true"} if include_deleted else None
         try:
             data = self._get(path, params)
-        except SnipeAPIError:
+        except SnipeAPIError as exc:
+            if _snipe_asset_not_found(exc):
+                return None
             if include_deleted:
                 return None
             raise
@@ -951,6 +953,20 @@ class SnipeITClient:
 
 
 # ─── SYNC LOGIC ───────────────────────────────────────────────────────────────
+
+
+def _snipe_asset_not_found(exc: SnipeAPIError) -> bool:
+    """Snipe returns HTTP 200 with status error when byserial finds no asset."""
+    msg = str(exc).casefold()
+    return "does not exist" in msg or "asset not found" in msg
+
+
+def _asset_tag_for_create(device_name: str, serial: str) -> str | None:
+    for candidate in (device_name, serial):
+        tag = str(candidate or "").strip()
+        if tag:
+            return tag
+    return None
 
 
 def _extract_asset_row(data: dict) -> dict | None:
@@ -1177,6 +1193,9 @@ def _build_asset_payload(
     if for_create:
         payload["serial"] = serial
         payload["status_id"] = status_id
+        asset_tag = _asset_tag_for_create(device_name, serial)
+        if asset_tag:
+            payload["asset_tag"] = asset_tag
         if man_id is not None:
             payload["manufacturer_id"] = man_id
     else:

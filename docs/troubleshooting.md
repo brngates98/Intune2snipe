@@ -85,6 +85,12 @@
 - Fixed in recent releases: serial lookup uses `GET /api/v1/hardware/byserial/{serial}`  
 - Upgrade to latest `main`/release; existing serials should update instead of creating duplicates  
 
+**First import fails with `Asset does not exist` or blank `asset_tag`**
+
+- Snipe-IT returns `status: error` with message `Asset does not exist.` when `/hardware/byserial/{serial}` finds no row — recent releases treat that as “not found” and continue to create  
+- On create, intune2snipe sets `asset_tag` from the Intune device name, falling back to serial (required when Snipe asset-tag auto-increment is disabled)  
+- Alternatively, enable **Admin Settings → Asset Tags → auto-increment** in Snipe-IT if you prefer server-generated tags  
+
 **`could not resolve model_id` warnings**
 
 - Often caused by manufacturer name casing (`LENOVO` in Intune vs `Lenovo` in Snipe). Recent releases match taxonomy case-insensitively  

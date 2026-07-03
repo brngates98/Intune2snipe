@@ -1031,6 +1031,8 @@ class TestFindEntraUserRow:
             ]
             row = snipe.find_entra_user_row("user@domain.com", "entra-obj-1")
             assert row == {"id": 6, "employee_num": "entra-obj-1"}
+            second_call_params = snipe._session.get.call_args_list[1][1]["params"]
+            assert second_call_params.get("employee_num") == "entra-obj-1"
 
 
 class TestBuildEntraUserPayload:

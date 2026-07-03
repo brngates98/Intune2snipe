@@ -919,7 +919,7 @@ class SnipeITClient:
                 if em and em.casefold() == email.casefold():
                     return row
         if entra_object_id:
-            for row in self._iter_rows("/users", {"search": entra_object_id}):
+            for row in self._iter_rows("/users", {"employee_num": entra_object_id}):
                 if row.get("employee_num") == entra_object_id:
                     return row
         return None

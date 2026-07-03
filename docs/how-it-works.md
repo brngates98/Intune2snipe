@@ -3,13 +3,14 @@
 ## High-level flow
 
 1. **Authenticate** to Microsoft Graph with Azure AD **client credentials** (daemon app).  
-2. **Windows Autopilot (automatic)** — When syncing `windows` or `all`, list `windowsAutopilotDeviceIdentities` and index by serial (unless `SNIPEIT_SKIP_AUTOPILOT=true`).  
-3. **Optional group filter** — If `--groups` or `AZURE_GROUP_IDS` is set, collect Azure AD **device** object IDs from those groups (`/groups/{id}/members/microsoft.graph.device`).  
-4. **List Intune managed devices** — `GET /deviceManagement/managedDevices` with `$select` (and optional `$filter` by platform).  
-5. **Optional primary user** — When `GRAPH_USE_PRIMARY_USER` or `--use-primary-user` is set, resolve assignees via Graph `$batch` to `/beta/deviceManagement/managedDevices/{id}/users`.  
-6. **Snipe-IT setup** — Ensures category `Intune`, manufacturers, models; **status labels** with built-in default names are **created automatically** if missing (see [Configuration](configuration.md#lifecycle-status-labels-when-using-sync_state_file)).  
-7. **Per device** — Restore soft-deleted assets if needed; **update** or **create**; **check out** or **check in** as needed; apply lifecycle when retiring.  
-8. **Reconciliation** — When `SYNC_STATE_FILE` is set, serials seen on the prior run but missing from Intune now are moved to **Pending Autopilot** (Windows + Autopilot pending) or **Archived**.  
+2. **Optional Entra user pre-sync** — When `ENTRA_USER_SYNC_ENABLED=true`, list members of `ENTRA_USER_SYNC_GROUP_IDS` (`/groups/{id}/members/microsoft.graph.user`) and create/update matching Snipe-IT **users** (plus company/department/location) before any asset sync happens — see [Configuration](configuration.md#optional--entra-id-user-pre-sync).  
+3. **Windows Autopilot (automatic)** — When syncing `windows` or `all`, list `windowsAutopilotDeviceIdentities` and index by serial (unless `SNIPEIT_SKIP_AUTOPILOT=true`).  
+4. **Optional group filter** — If `--groups` or `AZURE_GROUP_IDS` is set, collect Azure AD **device** object IDs from those groups (`/groups/{id}/members/microsoft.graph.device`).  
+5. **List Intune managed devices** — `GET /deviceManagement/managedDevices` with `$select` (and optional `$filter` by platform).  
+6. **Optional primary user** — When `GRAPH_USE_PRIMARY_USER` or `--use-primary-user` is set, resolve assignees via Graph `$batch` to `/beta/deviceManagement/managedDevices/{id}/users`.  
+7. **Snipe-IT setup** — Ensures category `Intune`, manufacturers, models; **status labels** with built-in default names are **created automatically** if missing (see [Configuration](configuration.md#lifecycle-status-labels-when-using-sync_state_file)).  
+8. **Per device** — Restore soft-deleted assets if needed; **update** or **create**; **check out** or **check in** as needed; apply lifecycle when retiring.  
+9. **Reconciliation** — When `SYNC_STATE_FILE` is set, serials seen on the prior run but missing from Intune now are moved to **Pending Autopilot** (Windows + Autopilot pending) or **Archived**.  
 
 ## Device lifecycle
 
@@ -128,6 +129,8 @@ When `SNIPEIT_CHECKOUT_MODE=location`, the app takes the first `SNIPEIT_LOCATION
 Checkout and checkin calls include `status_id` from `SNIPEIT_CHECKOUT_STATUS` / `SNIPEIT_CHECKIN_STATUS` (defaulting to `SNIPEIT_DEFAULT_STATUS`). On create, assignee can be set in the same POST when `SNIPEIT_SKIP_CHECKOUT_ON_CREATE` is not set.
 
 On updates, checkout runs again when the resolved user or location differs; checkin runs when Intune has no primary user, when a stale-device policy applies, or during lifecycle transitions.
+
+When `SNIPEIT_COMPANY_FROM_USER=true` and `SNIPEIT_CHECKOUT_MODE=user`, an asset's `company_id` is taken from the checked-out user's Snipe-IT company (falling back to `SNIPEIT_COMPANY_ID` if the user has none), so multi-company installs keep hardware and its assignee's company in sync — useful together with the [Entra user pre-sync](configuration.md#optional--entra-id-user-pre-sync).
 
 ## Soft-deleted assets
 

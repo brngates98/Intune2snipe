@@ -33,8 +33,30 @@
 | `SNIPEIT_STATUS_PENDING_RETIRE` | Snipe status when Intune `managementState` is retire/wipe/delete in progress (default: `Pending Retire`) |
 | `SNIPEIT_STATUS_ARCHIVED` | Snipe status when device left Intune and is not Autopilot-pending (default: `Archived`) |
 | `SNIPEIT_SKIP_STATUS_AUTO_CREATE` | Set to `true` to never create missing status labels via API (default: auto-create built-in default names only) |
+| `SNIPEIT_COMPANY_FROM_USER` | Set to `true` to set an asset's `company_id` from its checked-out user's Snipe-IT company instead of (or as a fallback for) `SNIPEIT_COMPANY_ID`. Only applies when `SNIPEIT_CHECKOUT_MODE=user` |
 
 CLI: `--use-primary-user` enables primary-user lookup for a single run (overrides `GRAPH_USE_PRIMARY_USER` when passed).
+
+## Optional — Entra ID user pre-sync
+
+Disabled by default. When enabled, intune2snipe reconciles Snipe-IT **users** from a defined Entra ID group *before* the normal asset sync runs, so devices can be checked out to a matching user on the same run instead of needing the user to already exist.
+
+| Variable | Purpose |
+|----------|---------|
+| `ENTRA_USER_SYNC_ENABLED` | Set to `true` to enable the user pre-sync pass (default: `false`) |
+| `ENTRA_USER_SYNC_GROUP_IDS` | Comma-separated Entra ID **group object IDs** whose members are synced as Snipe-IT users. Required when the pre-sync is enabled |
+| `ENTRA_USER_SYNC_CREATE_COMPANY` | Set to `false` to stop creating/linking a Snipe-IT company from the user's Entra `companyName` (default: `true`) |
+| `ENTRA_USER_SYNC_CREATE_DEPARTMENT` | Set to `false` to stop creating/linking a Snipe-IT department from the user's Entra `department` (default: `true`) |
+| `ENTRA_USER_SYNC_CREATE_LOCATION` | Set to `false` to stop creating/linking a Snipe-IT location from the user's Entra `officeLocation` (default: `true`) |
+
+For each user found in the group, intune2snipe matches an existing Snipe-IT user by **email** (falling back to a previously stored Entra object id in `employee_num`, so a later email/UPN rename doesn't orphan the match), then creates or updates it with name, email, username (UPN), job title, phone, and the resolved company/department/location. The Entra object id is stored in `employee_num` on every create/update so the same user is matched reliably on future runs. Created users get a random password (they are expected to authenticate to Snipe-IT via SSO, not this password).
+
+This requires the app registration to have `GroupMember.Read.All` (or `Group.Read.All`) and `User.Read.All` — see [Azure AD app registration](#azure-ad-app-registration).
+
+```bash
+export ENTRA_USER_SYNC_ENABLED=true
+export ENTRA_USER_SYNC_GROUP_IDS="<group-id-1>,<group-id-2>"
+```
 
 ## Optional — custom fields & compliance
 

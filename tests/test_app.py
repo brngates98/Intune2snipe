@@ -13,9 +13,11 @@ from app import (
     SnipeITClient,
     SyncConfig,
     SyncOutcome,
+    UserSyncOutcome,
     _assigned_user_id,
     _autopilot_pending,
     _build_asset_payload,
+    _build_entra_user_payload,
     _device_in_retire_state,
     _device_user_upn,
     _enrich_device_autopilot,
@@ -27,11 +29,14 @@ from app import (
     _platform_includes_windows,
     _status_unavailable,
     _upn_location_prefix,
+    fetch_entra_group_users,
     fetch_group_device_ids,
     fetch_managed_devices,
     normalize_upn,
     reconcile_missing_devices,
     sync_device,
+    sync_entra_user,
+    sync_entra_users,
 )
 
 
@@ -882,3 +887,327 @@ class TestGetOrCreateStatusId:
                 is None
             )
             snipe._post.assert_not_called()
+
+
+class TestSyncConfigUserSync:
+    def test_defaults_disabled(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+                "SNIPEIT_URL": "https://snipe.example/api/v1",
+                "SNIPEIT_API_TOKEN": "tok",
+            },
+            clear=True,
+        ):
+            cfg = SyncConfig.from_env()
+        assert cfg.user_sync_enabled is False
+        assert cfg.user_sync_group_ids == []
+        assert cfg.company_from_user is False
+
+    def test_enabled_parses_group_ids_and_toggles(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AZURE_TENANT_ID": "t",
+                "AZURE_CLIENT_ID": "c",
+                "AZURE_CLIENT_SECRET": "s",
+                "SNIPEIT_URL": "https://snipe.example/api/v1",
+                "SNIPEIT_API_TOKEN": "tok",
+                "ENTRA_USER_SYNC_ENABLED": "true",
+                "ENTRA_USER_SYNC_GROUP_IDS": " g1 , g2 ",
+                "ENTRA_USER_SYNC_CREATE_DEPARTMENT": "false",
+                "SNIPEIT_COMPANY_FROM_USER": "true",
+            },
+            clear=True,
+        ):
+            cfg = SyncConfig.from_env()
+        assert cfg.user_sync_enabled is True
+        assert cfg.user_sync_group_ids == ["g1", "g2"]
+        assert cfg.user_sync_create_company is True
+        assert cfg.user_sync_create_department is False
+        assert cfg.user_sync_create_location is True
+        assert cfg.company_from_user is True
+
+
+class TestFetchEntraGroupUsers:
+    def test_no_groups_returns_empty(self) -> None:
+        g = MagicMock()
+        assert fetch_entra_group_users(g, []) == []
+        g.get_paginated.assert_not_called()
+
+    def test_dedupes_across_groups(self) -> None:
+        g = MagicMock()
+        g.get_paginated.side_effect = [
+            [{"id": "u1", "userPrincipalName": "a@domain.com"}],
+            [{"id": "u1", "userPrincipalName": "a@domain.com"}, {"id": "u2"}],
+        ]
+        out = fetch_entra_group_users(g, ["g1", "g2"])
+        assert {u["id"] for u in out} == {"u1", "u2"}
+        assert g.get_paginated.call_count == 2
+        assert "microsoft.graph.user" in g.get_paginated.call_args_list[0][0][0]
+
+    def test_403_raises_runtime_error(self) -> None:
+        g = MagicMock()
+
+        def boom(_url: str) -> list[dict]:
+            resp = requests.Response()
+            resp.status_code = 403
+            raise requests.HTTPError(response=resp)
+
+        g.get_paginated.side_effect = boom
+        with pytest.raises(RuntimeError, match="403 Forbidden"):
+            fetch_entra_group_users(g, ["g1"])
+
+
+class TestSnipeCompanyDepartmentLocation:
+    _SNIPE_ENV = {
+        "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+        "SNIPEIT_API_TOKEN": "token",
+    }
+
+    def test_get_or_create_company_matches_existing(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._session = MagicMock()
+            snipe._session.get.return_value.json.return_value = {
+                "rows": [{"id": 3, "name": "Acme Inc"}]
+            }
+            snipe._session.get.return_value.raise_for_status = MagicMock()
+            assert snipe.get_or_create_company("acme inc") == 3
+            snipe._session.post.assert_not_called()
+
+    def test_get_or_create_department_creates_with_company(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._iter_rows = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+            snipe._post = MagicMock(  # type: ignore[method-assign]
+                return_value={"payload": {"id": 8, "name": "Engineering"}}
+            )
+            dept_id = snipe.get_or_create_department("Engineering", 3)
+            assert dept_id == 8
+            snipe._post.assert_called_once_with(
+                "/departments", {"name": "Engineering", "company_id": 3}
+            )
+
+    def test_get_or_create_location_by_name_creates(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._iter_rows = MagicMock(return_value=iter([]))  # type: ignore[method-assign]
+            snipe._post = MagicMock(  # type: ignore[method-assign]
+                return_value={"payload": {"id": 12, "name": "HQ"}}
+            )
+            assert snipe.get_or_create_location_by_name("HQ") == 12
+            snipe._post.assert_called_once_with("/locations", {"name": "HQ"})
+
+
+class TestFindEntraUserRow:
+    _SNIPE_ENV = {
+        "SNIPEIT_URL": "https://snipe.example.com/api/v1",
+        "SNIPEIT_API_TOKEN": "token",
+    }
+
+    def test_matches_by_email(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._session = MagicMock()
+            snipe._session.get.return_value.json.return_value = {
+                "rows": [{"id": 5, "email": "user@domain.com"}]
+            }
+            snipe._session.get.return_value.raise_for_status = MagicMock()
+            row = snipe.find_entra_user_row("user@domain.com", "entra-obj-1")
+            assert row == {"id": 5, "email": "user@domain.com"}
+
+    def test_falls_back_to_employee_num(self) -> None:
+        with patch.dict(os.environ, self._SNIPE_ENV, clear=False):
+            snipe = SnipeITClient(_test_config())
+            snipe._session = MagicMock()
+            snipe._session.get.return_value.raise_for_status = MagicMock()
+            snipe._session.get.return_value.json.side_effect = [
+                {"rows": []},
+                {"rows": [{"id": 6, "employee_num": "entra-obj-1"}]},
+            ]
+            row = snipe.find_entra_user_row("user@domain.com", "entra-obj-1")
+            assert row == {"id": 6, "employee_num": "entra-obj-1"}
+
+
+class TestBuildEntraUserPayload:
+    def test_create_includes_password_and_link(self) -> None:
+        user = {
+            "id": "entra-1",
+            "userPrincipalName": "jdoe@domain.com",
+            "mail": "jdoe@domain.com",
+            "givenName": "Jane",
+            "surname": "Doe",
+            "jobTitle": "Engineer",
+        }
+        payload = _build_entra_user_payload(
+            user, company_id=1, department_id=2, location_id=3, for_create=True
+        )
+        assert payload["username"] == "jdoe@domain.com"
+        assert payload["employee_num"] == "entra-1"
+        assert payload["company_id"] == 1
+        assert payload["department_id"] == 2
+        assert payload["location_id"] == 3
+        assert payload["password"] == payload["password_confirmation"]
+        assert len(payload["password"]) > 8
+
+    def test_update_omits_password(self) -> None:
+        user = {"id": "entra-2", "userPrincipalName": "asmith@domain.com"}
+        payload = _build_entra_user_payload(
+            user, company_id=None, department_id=None, location_id=None, for_create=False
+        )
+        assert "password" not in payload
+        assert payload["employee_num"] == "entra-2"
+
+    def test_disabled_account_deactivated(self) -> None:
+        user = {"id": "e3", "userPrincipalName": "x@domain.com", "accountEnabled": False}
+        payload = _build_entra_user_payload(
+            user, company_id=None, department_id=None, location_id=None, for_create=False
+        )
+        assert payload["activated"] == 0
+
+
+class TestSyncEntraUser:
+    def test_skips_when_no_upn_or_mail(self) -> None:
+        snipe = MagicMock()
+        outcome = sync_entra_user(snipe, {"id": "e1"}, _test_config())
+        assert outcome == UserSyncOutcome.SKIPPED_NO_UPN
+        snipe.find_entra_user_row.assert_not_called()
+
+    def test_creates_new_user_with_resolved_lookups(self) -> None:
+        snipe = MagicMock()
+        snipe.get_or_create_company.return_value = 10
+        snipe.get_or_create_department.return_value = 20
+        snipe.get_or_create_location_by_name.return_value = 30
+        snipe.find_entra_user_row.return_value = None
+        snipe.create_user.return_value = {"id": 99}
+        user = {
+            "id": "e-100",
+            "userPrincipalName": "new@domain.com",
+            "mail": "new@domain.com",
+            "companyName": "Acme",
+            "department": "Sales",
+            "officeLocation": "HQ",
+        }
+        outcome = sync_entra_user(snipe, user, _test_config(), dry_run=False)
+        assert outcome == UserSyncOutcome.CREATED
+        snipe.get_or_create_company.assert_called_once_with("Acme", dry_run=False)
+        snipe.get_or_create_department.assert_called_once_with("Sales", 10, dry_run=False)
+        snipe.get_or_create_location_by_name.assert_called_once_with("HQ", dry_run=False)
+        create_payload = snipe.create_user.call_args[0][0]
+        assert create_payload["company_id"] == 10
+        assert create_payload["department_id"] == 20
+        assert create_payload["location_id"] == 30
+
+    def test_updates_existing_user(self) -> None:
+        snipe = MagicMock()
+        snipe.get_or_create_company.return_value = None
+        snipe.get_or_create_department.return_value = None
+        snipe.get_or_create_location_by_name.return_value = None
+        snipe.find_entra_user_row.return_value = {"id": 42}
+        snipe.update_user.return_value = True
+        user = {"id": "e-101", "userPrincipalName": "existing@domain.com"}
+        outcome = sync_entra_user(snipe, user, _test_config(), dry_run=False)
+        assert outcome == UserSyncOutcome.UPDATED
+        snipe.update_user.assert_called_once()
+        assert snipe.update_user.call_args[0][0] == 42
+        snipe.create_user.assert_not_called()
+
+    def test_dry_run_creates_nothing(self) -> None:
+        snipe = MagicMock()
+        snipe.get_or_create_company.return_value = None
+        snipe.get_or_create_department.return_value = None
+        snipe.get_or_create_location_by_name.return_value = None
+        snipe.find_entra_user_row.return_value = None
+        user = {"id": "e-102", "userPrincipalName": "dry@domain.com"}
+        outcome = sync_entra_user(snipe, user, _test_config(), dry_run=True)
+        assert outcome == UserSyncOutcome.DRY_RUN_CREATE
+        snipe.create_user.assert_not_called()
+
+
+class TestSyncEntraUsers:
+    def test_disabled_returns_zero_counts_without_fetch(self) -> None:
+        graph = MagicMock()
+        snipe = MagicMock()
+        counts = sync_entra_users(graph, snipe, _test_config(user_sync_enabled=False))
+        assert counts[UserSyncOutcome.CREATED] == 0
+        graph.get_paginated.assert_not_called()
+
+    def test_enabled_without_group_ids_skips(self) -> None:
+        graph = MagicMock()
+        snipe = MagicMock()
+        counts = sync_entra_users(
+            graph, snipe, _test_config(user_sync_enabled=True, user_sync_group_ids=[])
+        )
+        assert counts[UserSyncOutcome.CREATED] == 0
+        graph.get_paginated.assert_not_called()
+
+    def test_enabled_processes_group_members(self) -> None:
+        graph = MagicMock()
+        graph.get_paginated.return_value = [
+            {"id": "e1", "userPrincipalName": "one@domain.com"},
+            {"id": "e2", "userPrincipalName": "two@domain.com"},
+        ]
+        snipe = MagicMock()
+        snipe.get_or_create_company.return_value = None
+        snipe.get_or_create_department.return_value = None
+        snipe.get_or_create_location_by_name.return_value = None
+        snipe.find_entra_user_row.return_value = None
+        snipe.create_user.return_value = {"id": 1}
+        counts = sync_entra_users(
+            graph,
+            snipe,
+            _test_config(user_sync_enabled=True, user_sync_group_ids=["g1"]),
+        )
+        assert counts[UserSyncOutcome.CREATED] == 2
+
+
+class TestCompanyFromUser:
+    def test_company_follows_checked_out_user(self) -> None:
+        snipe = MagicMock()
+        snipe.ensure_asset_for_sync.return_value = None
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_user_id.return_value = 5
+        snipe.get_user_company_id.return_value = 77
+        snipe.create_asset.return_value = {"id": 11}
+        config = _test_config(company_from_user=True, company_id=1)
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": "user@domain.com",
+        }
+        outcome = sync_device(
+            snipe, dev, category_id=1, default_status_id=2, config=config, dry_run=False
+        )
+        assert outcome == SyncOutcome.CREATED
+        snipe.get_user_company_id.assert_called_once_with(5)
+        create_payload = snipe.create_asset.call_args[0][0]
+        assert create_payload["company_id"] == 77
+
+    def test_disabled_uses_static_company_id(self) -> None:
+        snipe = MagicMock()
+        snipe.ensure_asset_for_sync.return_value = None
+        snipe.get_or_create_manufacturer.return_value = 1
+        snipe.get_or_create_model.return_value = 2
+        snipe.get_user_id.return_value = 5
+        snipe.create_asset.return_value = {"id": 11}
+        config = _test_config(company_from_user=False, company_id=9)
+        dev = {
+            "deviceName": "pc",
+            "serialNumber": "SN1",
+            "manufacturer": "Dell",
+            "model": "XPS",
+            "userPrincipalName": "user@domain.com",
+        }
+        sync_device(
+            snipe, dev, category_id=1, default_status_id=2, config=config, dry_run=False
+        )
+        snipe.get_user_company_id.assert_not_called()
+        create_payload = snipe.create_asset.call_args[0][0]
+        assert create_payload["company_id"] == 9

@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sys
 import time
 from dataclasses import dataclass, field
@@ -72,6 +73,11 @@ MANAGED_DEVICE_SELECT = (
     "id,deviceName,serialNumber,manufacturer,model,userPrincipalName,emailAddress,"
     "operatingSystem,azureADDeviceId,osVersion,complianceState,lastSyncDateTime,"
     "managedDeviceOwnerType,imei,meid,wiFiMacAddress,managementState"
+)
+
+ENTRA_USER_SELECT = (
+    "id,userPrincipalName,mail,displayName,givenName,surname,companyName,"
+    "department,officeLocation,jobTitle,mobilePhone,accountEnabled"
 )
 
 PLATFORM_ODATA_FILTERS: dict[str, str] = {
@@ -232,6 +238,12 @@ class SyncConfig:
     auto_create_pending_autopilot: bool = True
     auto_create_pending_retire: bool = True
     auto_create_archived: bool = True
+    user_sync_enabled: bool = False
+    user_sync_group_ids: list[str] = field(default_factory=list)
+    user_sync_create_company: bool = True
+    user_sync_create_department: bool = True
+    user_sync_create_location: bool = True
+    company_from_user: bool = False
 
     @classmethod
     def from_env(cls, *, use_primary_user_cli: bool | None = None) -> SyncConfig:
@@ -286,6 +298,18 @@ class SyncConfig:
             auto_create_pending_autopilot=auto_create_enabled and auto_ap,
             auto_create_pending_retire=auto_create_enabled and auto_retire,
             auto_create_archived=auto_create_enabled and auto_archived,
+            user_sync_enabled=_parse_bool_env("ENTRA_USER_SYNC_ENABLED", False),
+            user_sync_group_ids=_parse_group_ids(os.getenv("ENTRA_USER_SYNC_GROUP_IDS")),
+            user_sync_create_company=_parse_bool_env(
+                "ENTRA_USER_SYNC_CREATE_COMPANY", True
+            ),
+            user_sync_create_department=_parse_bool_env(
+                "ENTRA_USER_SYNC_CREATE_DEPARTMENT", True
+            ),
+            user_sync_create_location=_parse_bool_env(
+                "ENTRA_USER_SYNC_CREATE_LOCATION", True
+            ),
+            company_from_user=_parse_bool_env("SNIPEIT_COMPANY_FROM_USER", False),
         )
 
 
@@ -477,6 +501,10 @@ class SnipeITClient:
         self._status_cache: dict[str, int] = {}
         self._user_cache: dict[str, int | None] = {}
         self._location_cache: dict[str, int | None] = {}
+        self._company_cache: dict[str, int] = {}
+        self._department_cache: dict[tuple[str, int | None], int] = {}
+        self._location_name_cache: dict[str, int] = {}
+        self._user_company_cache: dict[int, int | None] = {}
         self._checkout_status_id: int | None = None
         self._checkin_status_id: int | None = None
 
@@ -688,6 +716,102 @@ class SnipeITClient:
         log.warning("Could not create model '%s': %s", model_number, resp)
         return None
 
+    def get_or_create_company(self, name: str, *, dry_run: bool = False) -> int | None:
+        if not name:
+            return None
+        if name in self._company_cache:
+            return self._company_cache[name]
+        company_id = self._find_exact("/companies", name, case_insensitive=True)
+        if company_id:
+            self._company_cache[name] = company_id
+            return company_id
+        if dry_run:
+            return None
+        resp = self._post("/companies", {"name": name})
+        if resp.get("payload"):
+            company_id = resp["payload"]["id"]
+            self._company_cache[name] = company_id
+            return company_id
+        company_id = self._find_exact("/companies", name, case_insensitive=True)
+        if company_id:
+            self._company_cache[name] = company_id
+            return company_id
+        log.warning("Could not create company '%s': %s", name, resp)
+        return None
+
+    def _find_department(self, name: str, company_id: int | None) -> int | None:
+        """Match a department by name, scoped to ``company_id`` when given so
+        same-named departments in different companies (multi-company installs)
+        aren't conflated."""
+        name_cf = name.casefold()
+        for row in self._iter_rows("/departments", {"search": name}):
+            if (row.get("name") or "").casefold() != name_cf:
+                continue
+            row_company = row.get("company")
+            row_company_id = row_company.get("id") if isinstance(row_company, dict) else None
+            if company_id is not None and row_company_id != company_id:
+                continue
+            return row["id"]
+        return None
+
+    def get_or_create_department(
+        self,
+        name: str,
+        company_id: int | None,
+        *,
+        dry_run: bool = False,
+    ) -> int | None:
+        if not name:
+            return None
+        cache_key = (name.casefold(), company_id)
+        if cache_key in self._department_cache:
+            return self._department_cache[cache_key]
+        dept_id = self._find_department(name, company_id)
+        if dept_id:
+            self._department_cache[cache_key] = dept_id
+            return dept_id
+        if dry_run:
+            return None
+        payload: dict[str, Any] = {"name": name}
+        if company_id is not None:
+            payload["company_id"] = company_id
+        resp = self._post("/departments", payload)
+        if resp.get("payload"):
+            dept_id = resp["payload"]["id"]
+            self._department_cache[cache_key] = dept_id
+            return dept_id
+        dept_id = self._find_department(name, company_id)
+        if dept_id:
+            self._department_cache[cache_key] = dept_id
+            return dept_id
+        log.warning("Could not create department '%s': %s", name, resp)
+        return None
+
+    def get_or_create_location_by_name(
+        self, name: str, *, dry_run: bool = False
+    ) -> int | None:
+        if not name:
+            return None
+        if name in self._location_name_cache:
+            return self._location_name_cache[name]
+        location_id = self._find_exact("/locations", name, case_insensitive=True)
+        if location_id:
+            self._location_name_cache[name] = location_id
+            return location_id
+        if dry_run:
+            return None
+        resp = self._post("/locations", {"name": name})
+        if resp.get("payload"):
+            location_id = resp["payload"]["id"]
+            self._location_name_cache[name] = location_id
+            return location_id
+        location_id = self._find_exact("/locations", name, case_insensitive=True)
+        if location_id:
+            self._location_name_cache[name] = location_id
+            return location_id
+        log.warning("Could not create location '%s': %s", name, resp)
+        return None
+
     def _lookup_status_id(self, name: str) -> int | None:
         if name in self._status_cache:
             return self._status_cache[name]
@@ -768,6 +892,59 @@ class SnipeITClient:
             )
         self._user_cache[cache_key] = user_id
         return user_id
+
+    def get_user_company_id(self, user_id: int) -> int | None:
+        """Look up the company_id of a Snipe-IT user (for company-follows-user checkout)."""
+        if user_id in self._user_company_cache:
+            return self._user_company_cache[user_id]
+        try:
+            data = self._get(f"/users/{user_id}")
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.warning("Could not look up company for user %d: %s", user_id, exc)
+            self._user_company_cache[user_id] = None
+            return None
+        company = data.get("company")
+        company_id = company.get("id") if isinstance(company, dict) else None
+        self._user_company_cache[user_id] = company_id
+        return company_id
+
+    def find_entra_user_row(
+        self, email: str | None, entra_object_id: str | None
+    ) -> dict | None:
+        """Match an existing Snipe-IT user by email, falling back to the stored
+        Entra object id (kept in ``employee_num``) so renames don't orphan the link."""
+        if email:
+            for row in self._iter_rows("/users", {"email": email}):
+                em = row.get("email")
+                if em and em.casefold() == email.casefold():
+                    return row
+        if entra_object_id:
+            for row in self._iter_rows("/users", {"search": entra_object_id}):
+                if row.get("employee_num") == entra_object_id:
+                    return row
+        return None
+
+    def create_user(self, payload: dict) -> dict | None:
+        try:
+            resp = self._post("/users", payload)
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.error("Failed to create user '%s': %s", payload.get("username"), exc)
+            return None
+        if resp.get("status") == "success" and resp.get("payload"):
+            return resp["payload"]
+        log.error("Failed to create user '%s': %s", payload.get("username"), resp)
+        return None
+
+    def update_user(self, user_id: int, payload: dict) -> bool:
+        try:
+            data = self._patch(f"/users/{user_id}", payload)
+        except (requests.RequestException, SnipeAPIError) as exc:
+            log.error("Failed to update user %d: %s", user_id, exc)
+            return False
+        if data.get("status") == "success":
+            return True
+        log.error("Failed to update user %d: %s", user_id, data)
+        return False
 
     def get_location_id(self, upn: str | None, prefix_len: int = 3) -> int | None:
         prefix = _upn_location_prefix(upn, prefix_len)
@@ -1184,6 +1361,7 @@ def _build_asset_payload(
     checkout_target_id: int | None,
     for_create: bool,
     autopilot: dict | None = None,
+    company_id_override: int | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "name": device_name,
@@ -1204,8 +1382,11 @@ def _build_asset_payload(
         if man_id is not None:
             payload["manufacturer_id"] = man_id
 
-    if config.company_id is not None:
-        payload["company_id"] = config.company_id
+    effective_company_id = (
+        company_id_override if company_id_override is not None else config.company_id
+    )
+    if effective_company_id is not None:
+        payload["company_id"] = effective_company_id
 
     owner = (device.get("managedDeviceOwnerType") or "").casefold()
     if owner == "personal":
@@ -1275,6 +1456,39 @@ def fetch_group_device_ids(graph: GraphClient, group_ids: list[str]) -> set[str]
                 log.error("Failed to fetch devices from group %s: %s", group_id, e)
     log.info("Found %d Azure AD devices from %d group(s)", len(device_ids), len(group_ids))
     return device_ids
+
+
+def fetch_entra_group_users(graph: GraphClient, group_ids: list[str]) -> list[dict]:
+    """List distinct Entra user objects from group membership (cast to microsoft.graph.user)."""
+    users_by_id: dict[str, dict] = {}
+    for group_id in group_ids:
+        if not group_id:
+            continue
+        try:
+            url = (
+                f"https://graph.microsoft.com/v1.0/groups/{group_id}"
+                f"/members/microsoft.graph.user?$select={ENTRA_USER_SELECT}"
+            )
+            for user in graph.get_paginated(url):
+                user_id = user.get("id")
+                if user_id:
+                    users_by_id[user_id] = user
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 404:
+                log.warning("Group %s not found or not accessible", group_id)
+            elif e.response is not None and e.response.status_code == 403:
+                raise RuntimeError(
+                    f"403 Forbidden accessing group {group_id}: grant an application "
+                    "permission that can list group members, e.g. GroupMember.Read.All "
+                    "or Group.Read.All, plus User.Read.All to read user properties "
+                    "(see Microsoft Graph: List group members)."
+                ) from e
+            else:
+                log.error("Failed to fetch users from group %s: %s", group_id, e)
+    log.info(
+        "Found %d Entra user(s) from %d group(s)", len(users_by_id), len(group_ids)
+    )
+    return list(users_by_id.values())
 
 
 def _managed_devices_url(platform: str) -> str:
@@ -1644,6 +1858,166 @@ def _resolve_startup_status_id(
     )
 
 
+class UserSyncOutcome(str, Enum):
+    CREATED = "created"
+    UPDATED = "updated"
+    CREATE_FAILED = "create_failed"
+    UPDATE_FAILED = "update_failed"
+    SKIPPED_NO_UPN = "skipped_no_upn"
+    DRY_RUN_CREATE = "dry_run_create"
+    DRY_RUN_UPDATE = "dry_run_update"
+
+
+def _entra_user_display(user: dict) -> str:
+    return user.get("displayName") or user.get("userPrincipalName") or user.get("id") or "unknown"
+
+
+def _build_entra_user_payload(
+    user: dict,
+    *,
+    company_id: int | None,
+    department_id: int | None,
+    location_id: int | None,
+    for_create: bool,
+) -> dict[str, Any]:
+    upn = user.get("userPrincipalName") or user.get("mail") or ""
+    payload: dict[str, Any] = {
+        "first_name": user.get("givenName") or _entra_user_display(user),
+        "last_name": user.get("surname") or "",
+        "username": upn,
+        "email": user.get("mail") or upn,
+        "employee_num": user.get("id"),
+        "jobtitle": user.get("jobTitle") or "",
+        "phone": user.get("mobilePhone") or "",
+        "activated": 1 if user.get("accountEnabled", True) else 0,
+    }
+    if company_id is not None:
+        payload["company_id"] = company_id
+    if department_id is not None:
+        payload["department_id"] = department_id
+    if location_id is not None:
+        payload["location_id"] = location_id
+    if for_create:
+        # Snipe-IT requires a password on create even though these accounts
+        # are expected to authenticate via SSO, not this local password.
+        password = secrets.token_urlsafe(24)
+        payload["password"] = password
+        payload["password_confirmation"] = password
+    return payload
+
+
+def sync_entra_user(
+    snipe: SnipeITClient,
+    user: dict,
+    config: SyncConfig,
+    *,
+    dry_run: bool = False,
+) -> UserSyncOutcome:
+    """Create or update the Snipe-IT user matching a single Entra user object."""
+    upn = user.get("userPrincipalName") or user.get("mail")
+    if not upn:
+        log.warning(
+            "Skipping Entra user '%s': no userPrincipalName or mail",
+            _entra_user_display(user),
+        )
+        return UserSyncOutcome.SKIPPED_NO_UPN
+
+    company_id: int | None = None
+    if config.user_sync_create_company and user.get("companyName"):
+        company_id = snipe.get_or_create_company(user["companyName"], dry_run=dry_run)
+
+    department_id: int | None = None
+    if config.user_sync_create_department and user.get("department"):
+        department_id = snipe.get_or_create_department(
+            user["department"], company_id, dry_run=dry_run
+        )
+
+    location_id: int | None = None
+    if config.user_sync_create_location and user.get("officeLocation"):
+        location_id = snipe.get_or_create_location_by_name(
+            user["officeLocation"], dry_run=dry_run
+        )
+
+    existing = snipe.find_entra_user_row(user.get("mail") or upn, user.get("id"))
+
+    if existing:
+        payload = _build_entra_user_payload(
+            user,
+            company_id=company_id,
+            department_id=department_id,
+            location_id=location_id,
+            for_create=False,
+        )
+        if dry_run:
+            log.info("[DRY RUN] Would update Snipe-IT user %d for %s", existing["id"], upn)
+            return UserSyncOutcome.DRY_RUN_UPDATE
+        if snipe.update_user(existing["id"], payload):
+            log.info("Updated Snipe-IT user %d: %s", existing["id"], upn)
+            return UserSyncOutcome.UPDATED
+        return UserSyncOutcome.UPDATE_FAILED
+
+    if dry_run:
+        log.info("[DRY RUN] Would create Snipe-IT user for %s", upn)
+        return UserSyncOutcome.DRY_RUN_CREATE
+
+    payload = _build_entra_user_payload(
+        user,
+        company_id=company_id,
+        department_id=department_id,
+        location_id=location_id,
+        for_create=True,
+    )
+    created = snipe.create_user(payload)
+    if not created:
+        return UserSyncOutcome.CREATE_FAILED
+    log.info("Created Snipe-IT user %d: %s", created["id"], upn)
+    return UserSyncOutcome.CREATED
+
+
+def sync_entra_users(
+    graph: GraphClient,
+    snipe: SnipeITClient,
+    config: SyncConfig,
+    *,
+    dry_run: bool = False,
+) -> dict[UserSyncOutcome, int]:
+    """Optional pre-pass: reconcile Snipe-IT users from an Entra ID group before asset sync."""
+    counts: dict[UserSyncOutcome, int] = {o: 0 for o in UserSyncOutcome}
+    if not config.user_sync_enabled:
+        return counts
+    if not config.user_sync_group_ids:
+        log.warning(
+            "ENTRA_USER_SYNC_ENABLED is set but ENTRA_USER_SYNC_GROUP_IDS is empty; "
+            "skipping user pre-sync"
+        )
+        return counts
+
+    users = fetch_entra_group_users(graph, config.user_sync_group_ids)
+    log.info("Entra user pre-sync: processing %d user(s)", len(users))
+    for user in users:
+        outcome = sync_entra_user(snipe, user, config, dry_run=dry_run)
+        counts[outcome] += 1
+    return counts
+
+
+def _format_user_sync_summary(counts: dict[UserSyncOutcome, int], dry_run: bool) -> str:
+    parts = []
+    for key, label in (
+        (UserSyncOutcome.CREATED, "created"),
+        (UserSyncOutcome.UPDATED, "updated"),
+        (UserSyncOutcome.CREATE_FAILED, "create failed"),
+        (UserSyncOutcome.UPDATE_FAILED, "update failed"),
+        (UserSyncOutcome.SKIPPED_NO_UPN, "skipped (no UPN)"),
+        (UserSyncOutcome.DRY_RUN_CREATE, "would create"),
+        (UserSyncOutcome.DRY_RUN_UPDATE, "would update"),
+    ):
+        n = counts.get(key, 0)
+        if n:
+            parts.append(f"{n} {label}")
+    prefix = "[DRY RUN] " if dry_run else ""
+    return prefix + "Entra user pre-sync: " + (", ".join(parts) if parts else "no actions")
+
+
 def sync_device(
     snipe: SnipeITClient,
     device: dict,
@@ -1716,6 +2090,10 @@ def sync_device(
             )
         return SyncOutcome.SKIPPED_NO_MODEL
 
+    company_id_override: int | None = None
+    if config.company_from_user and checkout_mode == "user" and checkout_target_id:
+        company_id_override = snipe.get_user_company_id(checkout_target_id)
+
     status_id = _resolve_status_id(snipe, device, default_status_id, config)
     existing = snipe.ensure_asset_for_sync(serial, config=config)
 
@@ -1740,6 +2118,7 @@ def sync_device(
             checkout_target_id=None,
             for_create=False,
             autopilot=autopilot,
+            company_id_override=company_id_override,
         )
         if existing.get("archived") in (True, 1, "1"):
             update_payload["archived"] = 0
@@ -1773,6 +2152,7 @@ def sync_device(
         checkout_target_id=checkout_target_id if checkout_on_create else None,
         for_create=True,
         autopilot=autopilot,
+        company_id_override=company_id_override,
     )
 
     if dry_run:
@@ -1858,6 +2238,10 @@ def main() -> None:
 
     graph = GraphClient()
     snipe = SnipeITClient(config)
+
+    if config.user_sync_enabled:
+        user_sync_counts = sync_entra_users(graph, snipe, config, dry_run=args.dry_run)
+        log.info("%s", _format_user_sync_summary(user_sync_counts, args.dry_run))
 
     autopilot_by_serial: dict[str, dict] = {}
     if _platform_includes_windows(args.platform) and not config.skip_autopilot:
